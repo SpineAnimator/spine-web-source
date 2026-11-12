@@ -25,8 +25,8 @@ jobs:
           import struct
           import sys
           import time
-          import urllib.error
-          import urllib.request
+          import subprocess
+          import tempfile
           import zipfile
           import zlib
 
@@ -51,22 +51,27 @@ jobs:
           ]
 
           def post(endpoint, data):
-              req=urllib.request.Request(
-                  SITE + endpoint,
-                  data=json.dumps(data,ensure_ascii=False).encode('utf8'),
-                  method='POST',
-                  headers={'Content-Type':'application/json','Origin':SITE}
-              )
-              started=time.monotonic()
-              try:
-                  with urllib.request.urlopen(req,timeout=45) as result:
-                      out=result.read()
-                      elapsed=time.monotonic()-started
-                      print(endpoint,'HTTP',result.status,'seconds',round(elapsed,2),'bytes',len(out),flush=True)
-                      return out
-              except urllib.error.HTTPError as e:
-                  print(endpoint,'HTTP',e.code,'body',e.read(1000).decode('utf8','replace'),flush=True)
-                  raise
+              payload = json.dumps(data, ensure_ascii=False).encode('utf8')
+              with tempfile.NamedTemporaryFile() as inp, tempfile.NamedTemporaryFile() as out:
+                  inp.write(payload)
+                  inp.flush()
+                  started=time.monotonic()
+                  completed=subprocess.run([
+                      'curl', '--silent', '--show-error', '--max-time', '45',
+                      '--output', out.name, '--write-out', '%{http_code}',
+                      '--request', 'POST', '--header', 'Content-Type: application/json',
+                      '--header', 'Origin: '+SITE,
+                      '--data-binary', '@'+inp.name, SITE+endpoint,
+                  ], capture_output=True, text=True, timeout=50)
+                  out.seek(0)
+                  response=out.read()
+                  status=completed.stdout.strip()
+                  print(endpoint, 'HTTP', status, 'seconds', round(time.monotonic()-started,2),
+                        'bytes',len(response),flush=True)
+                  if completed.returncode or status!='200':
+                      print('curl stderr:', completed.stderr[:300], 'body:',response[:1000].decode('utf8','replace'),flush=True)
+                      raise RuntimeError('Cloud request failed: '+endpoint+' HTTP '+status)
+                  return response
 
           body = {
               'image':data_uri(combined),
