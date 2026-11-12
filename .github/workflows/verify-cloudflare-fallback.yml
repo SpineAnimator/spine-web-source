@@ -1,0 +1,50 @@
+name: Verify isolated 3Spine Cloudflare fallback
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/verify-cloudflare-fallback.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Verify published HTML and JS, CORS boundary and backend routing
+        shell: bash
+        env:
+          SITE: https://3spine-public.spine-animator-f8692224.workers.dev
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 4 --retry-delay 3 --retry-all-errors --max-time 15 "$SITE/" -o /tmp/index.html
+          curl -fsSL --retry 4 --retry-delay 3 --retry-all-errors --max-time 15 "$SITE/app.js" -o /tmp/app.js
+          grep -Fq 'SPINE ANIMATOR' /tmp/index.html
+          grep -Fq 'const STUDIO = location.origin;' /tmp/app.js
+          grep -Fq 'const EXPORTER = location.origin;' /tmp/app.js
+          node --check /tmp/app.js
+          test "$(curl -sS -o /dev/null -w '%{http_code}' "$SITE/api/health")" = 200
+          test "$(curl -sS -o /dev/null -w '%{http_code}' "$SITE/engine/spine_core.wasm")" = 404
+
+          # Untrusted websites must never proxy API requests.
+          denied="$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+            -H 'Origin: https://untrusted.example' -H 'Content-Type: application/json' \
+            --data '{}' "$SITE/api/plan")"
+          test "$denied" = 403 || { echo "::error::Origin check failed ($denied)"; exit 1; }
+
+          # Invalid JSON objects must reach upstream validation (4xx), not a broken service (502).
+          for endpoint in plan build; do
+            status="$(curl -sS -o /tmp/response-${endpoint}.json -w '%{http_code}' -X POST \
+              -H "Origin: $SITE" -H 'Content-Type: application/json' \
+              --data '{}' --max-time 20 "$SITE/api/$endpoint")"
+            case "$status" in
+              4??) echo "$endpoint: upstream rejected invalid input as expected ($status)" ;;
+              *) echo "::error::$endpoint returned HTTP $status"; cat "/tmp/response-${endpoint}.json"; exit 1 ;;
+            esac
+          done
+
+          echo '3SPINE_FALLBACK_SMOKE_PASS' >> "$GITHUB_STEP_SUMMARY"
