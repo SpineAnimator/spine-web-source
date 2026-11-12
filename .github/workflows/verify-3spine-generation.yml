@@ -1,0 +1,91 @@
+name: End-to-end synthetic artwork to Spine ZIP
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/verify-3spine-generation.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Generate synthetic layered artwork, plan animation and validate Spine ZIP
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64
+          import io
+          import json
+          import struct
+          import sys
+          import time
+          import urllib.error
+          import urllib.request
+          import zipfile
+          import zlib
+
+          SITE = 'https://3spine-public.spine-animator-f8692224.workers.dev'
+          W = H = 96
+
+          def png(width, height, pixel):
+              def chunk(kind, data):
+                  return struct.pack('!I', len(data)) + kind + data + struct.pack('!I', zlib.crc32(kind + data) & 0xffffffff)
+              raw = b''.join(b'\x00' + b''.join(bytes(pixel(x, y)) for x in range(width)) for y in range(height))
+              return b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('!2I5B', width, height, 8, 6, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(raw, 9)) + chunk(b'IEND', b'')
+
+          def data_uri(blob):
+              return 'data:image/png;base64,' + base64.b64encode(blob).decode('ascii')
+
+          background = png(W, H, lambda x, y: (20, 60, 120, 255))
+          square = png(36, 36, lambda x, y: (230, 50, 80, 255))
+          combined = png(W, H, lambda x, y: (230, 50, 80, 255) if 30 <= x < 66 and 30 <= y < 66 else (20, 60, 120, 255))
+          layers = [
+              {'id': 'background', 'image': data_uri(background), 'bounds': {'x':0,'y':0,'width':W,'height':H}},
+              {'id': 'square', 'image': data_uri(square), 'bounds': {'x':30,'y':30,'width':36,'height':36}},
+          ]
+
+          def post(endpoint, data):
+              req=urllib.request.Request(
+                  SITE + endpoint,
+                  data=json.dumps(data,ensure_ascii=False).encode('utf8'),
+                  method='POST',
+                  headers={'Content-Type':'application/json','Origin':SITE}
+              )
+              started=time.monotonic()
+              try:
+                  with urllib.request.urlopen(req,timeout=45) as result:
+                      out=result.read()
+                      elapsed=time.monotonic()-started
+                      print(endpoint,'HTTP',result.status,'seconds',round(elapsed,2),'bytes',len(out),flush=True)
+                      return out
+              except urllib.error.HTTPError as e:
+                  print(endpoint,'HTTP',e.code,'body',e.read(1000).decode('utf8','replace'),flush=True)
+                  raise
+
+          body = {
+              'image':data_uri(combined),
+              'layers':layers,
+              'description':'Animate a subtle bounce of the red square above the steady blue background for two seconds. Preserve original setup pose.',
+              'instructions':'Preserve original draw order and all source layer pixels. Keep frame-zero setup pose. Return complete animated Spine scene.'
+          }
+          plan = json.loads(post('/api/plan',body))
+          scene = plan.get('scene')
+          validation=plan.get('validation') or {}
+          assert isinstance(scene,dict) and isinstance(scene.get('clips'),list) and scene['clips'], 'Planner returned no clips'
+          assert validation.get('initialPosePreserved') is True and validation.get('drawOrderPreserved') is True, 'Source preservation validation failed'
+          archive=post('/api/build', {'canvas':{'width':W,'height':H},'scene':scene,'layers':layers})
+          assert archive.startswith(b'PK\x03\x04'), 'ZIP header missing'
+          with zipfile.ZipFile(io.BytesIO(archive)) as z:
+              files=z.namelist()
+              print('ZIP contents:', ', '.join(files[:20]))
+              assert z.testzip() is None, 'ZIP CRC validation failed'
+              assert any(name.endswith('.json') for name in files), 'Spine JSON missing'
+              assert any(name.endswith('.png') for name in files), 'Textures missing'
+          print('SYNTHETIC_SCENE_SPINE_ZIP_PASS')
+          PY
