@@ -12,18 +12,33 @@
     downloadURL = null;
     $('download').hidden = true;
   }
-  async function fetchLimited(url, init, limit = LIMIT) {
+  async function fetchLimited(url, init, limit = LIMIT, stage = 'Remote request') {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15000);
     try {
       const response = await fetch(url, { ...init, credentials: 'omit', mode: 'cors',
         redirect: 'error', signal: controller.signal });
-      if (!response.ok) throw Error('Remote HTTP ' + response.status);
+      if (!response.ok) {
+        let reason = '';
+        if (/json/i.test(response.headers.get('content-type') || '')) {
+          try {
+            const detail = await response.json();
+            reason = detail?.error?.message || (typeof detail?.error === 'string' ? detail.error : '') || detail?.message || '';
+          } catch (_) {}
+        }
+        const error = new Error(stage + ': HTTP ' + response.status +
+          (reason ? ' — ' + String(reason).slice(0, 240) : ''));
+        error.status = response.status;
+        throw error;
+      }
       const expected = Number(response.headers.get('content-length'));
-      if (expected > limit) throw Error('Response is too large');
+      if (expected > limit) throw Error(stage + ': response is too large');
       const bytes = await response.arrayBuffer();
-      if (bytes.byteLength > limit) throw Error('Response is too large');
+      if (bytes.byteLength > limit) throw Error(stage + ': response is too large');
       return { response, bytes };
+    } catch (error) {
+      if (error?.name === 'AbortError') throw Error(stage + ': 15-second network timeout');
+      throw error;
     } finally { clearTimeout(timeout); }
   }
   function sourceURL(text) {
@@ -41,9 +56,26 @@
       return file.arrayBuffer();
     }
     const u = sourceURL($('url').value.trim());
-    const endpoint = ['files.catbox.moe', 'litter.catbox.moe'].includes(u.hostname)
-      ? EXPORTER + '/api/psd-source?url=' + encodeURIComponent(u.href) : u.href;
-    return (await fetchLimited(endpoint, { method: 'GET' })).bytes;
+    if (['files.catbox.moe', 'litter.catbox.moe'].includes(u.hostname)) {
+      const suffix = '/api/psd-source?url=' + encodeURIComponent(u.href);
+      const routes = [
+        ['PSD cache', 'https://spine-psd-cache.spine-animator-f8692224.workers.dev' + suffix],
+        ['PSD generator', EXPORTER + suffix]
+      ];
+      const failures = [];
+      for (const [name, endpoint] of routes) {
+        message('Loading PSD through ' + name + '…');
+        try {
+          const bytes = (await fetchLimited(endpoint, { method: 'GET' }, LIMIT, name)).bytes;
+          const head = new Uint8Array(bytes, 0, Math.min(bytes.byteLength, 4));
+          if (head.length !== 4 || String.fromCharCode(...head) !== '8BPS')
+            throw Error(name + ': response is not a PSD');
+          return bytes;
+        } catch (error) { failures.push(error.message); }
+      }
+      throw Error('PSD download failed: ' + failures.join(' | '));
+    }
+    return (await fetchLimited(u.href, { method: 'GET' }, LIMIT, 'PSD download')).bytes;
   }
   function canvasOf(img) {
     if (!img) return null;
@@ -121,9 +153,18 @@
         instructions: 'Preserve original draw order and all source layer pixels. Keep frame-zero setup pose. Return complete animated Spine scene. Do not fake 360-degree depth.' });
       if (request.length > 19 * 1024 * 1024) throw Error('PSD exceeds cloud planning limit');
       message('Cloud animation in progress…');
-      const planResponse = await fetchLimited(STUDIO + '/api/plan', {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: request
-      }, 20 * 1024 * 1024);
+      let planResponse;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          planResponse = await fetchLimited(STUDIO + '/api/plan', {
+            method: 'POST', headers: { 'content-type': 'application/json' }, body: request
+          }, 20 * 1024 * 1024, 'AI planner');
+          break;
+        } catch (error) {
+          if (attempt !== 0 || ![502, 503].includes(error.status)) throw error;
+          message('AI planner temporarily unavailable; retrying once…');
+        }
+      }
       const plan = JSON.parse(new TextDecoder().decode(planResponse.bytes));
       if (!plan.scene || !Array.isArray(plan.scene.clips) || !plan.scene.clips.length)
         throw Error('Cloud did not return complete animation clips. No incomplete ZIP created.');
@@ -135,7 +176,7 @@
       message('Exporting Spine ZIP…');
       const result = await fetchLimited(EXPORTER + '/api/build', {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: exportBody
-      }, 200 * 1024 * 1024);
+      }, 200 * 1024 * 1024, 'Spine ZIP exporter');
       const sig = new Uint8Array(result.bytes, 0, 4);
       if (sig.length < 4 || sig[0] !== 80 || sig[1] !== 75 || sig[2] !== 3 || sig[3] !== 4)
         throw Error('Server did not return a valid ZIP header');
