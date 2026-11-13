@@ -1,7 +1,7 @@
 /* Public, frontend-only interface. Private 2Spine animation and Linux Spine code is NOT included. */
 (() => {
   'use strict';
-  const $ = id => document.getElementById(id);
+  const $ = id => document.getElementById(({ create: 'generate', file: 'source-file', url: 'source-url', preview: 'source-preview' })[id] || id);
   const STUDIO = 'https://spine-studio.spine-animator-f8692224.workers.dev';
   const EXPORTER = 'https://spine-generator.spine-animator-f8692224.workers.dev';
   let downloadURL = null;
@@ -10,7 +10,7 @@
   function clearDownload() {
     if (downloadURL) URL.revokeObjectURL(downloadURL);
     downloadURL = null;
-    $('download').style.display = 'none';
+    $('download').hidden = true;
   }
   async function fetchLimited(url, init, limit = LIMIT) {
     const controller = new AbortController();
@@ -107,11 +107,15 @@
       if (!motion || motion.length > 20000) throw Error('Enter a motion description (up to 20,000 characters)');
       message('Loading PSD…');
       const source = parse(await getBytes());
-      $('info').textContent = source.width + ' × ' + source.height + ' · ' + source.layers.length + ' layers';
+      $('layer-count').textContent = String(source.layers.length);
+      $('source-size').textContent = source.width + ' × ' + source.height;
+      $('source-mode').textContent = 'PSD';
+      $('source-name').textContent = $('file').files[0]?.name || $('url').value.trim().split('/').pop().split('?')[0] || 'PSD';
+      $('source-bytes').textContent = '—';
       const preview = $('preview');
       preview.width = source.width; preview.height = source.height;
       preview.getContext('2d').drawImage(source.composite, 0, 0);
-      preview.style.display = 'block';
+      preview.hidden = false;
       const request = JSON.stringify({ image: source.composite.toDataURL('image/png'),
         layers: source.layers, description: motion,
         instructions: 'Preserve original draw order and all source layer pixels. Keep frame-zero setup pose. Return complete animated Spine scene. Do not fake 360-degree depth.' });
@@ -137,7 +141,7 @@
         throw Error('Server did not return a valid ZIP header');
       downloadURL = URL.createObjectURL(new Blob([result.bytes], { type: 'application/zip' }));
       $('download').href = downloadURL;
-      $('download').style.display = 'inline-block';
+      $('download').hidden = false;
       message('ZIP ready. Check animations in Spine Editor 4.3 before production.');
     } catch (error) {
       message('Generation failed: ' + (error?.name === 'AbortError' ? '15-second network timeout' : error.message));
@@ -146,6 +150,7 @@
     }
   }
   $('create').addEventListener('click', create);
+  $('prompt').addEventListener('keydown', event => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); create(); } });
   $('file').addEventListener('change', () => { $('url').value = ''; clearDownload(); });
   $('url').addEventListener('change', () => { $('file').value = ''; clearDownload(); });
   $('prompt').addEventListener('input', clearDownload);
