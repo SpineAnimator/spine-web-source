@@ -12,9 +12,9 @@
     downloadURL = null;
     $('download').hidden = true;
   }
-  async function fetchLimited(url, init, limit = LIMIT, stage = 'Remote request') {
+  async function fetchLimited(url, init, limit = LIMIT, stage = 'Remote request', timeoutMs = 15000) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await fetch(url, { ...init, credentials: 'omit', mode: 'cors',
         redirect: 'error', signal: controller.signal });
@@ -37,7 +37,7 @@
       if (bytes.byteLength > limit) throw Error(stage + ': response is too large');
       return { response, bytes };
     } catch (error) {
-      if (error?.name === 'AbortError') throw Error(stage + ': 15-second network timeout');
+      if (error?.name === 'AbortError') throw Error(stage + ': ' + Math.round(timeoutMs / 1000) + '-second network timeout');
       throw error;
     } finally { clearTimeout(timeout); }
   }
@@ -206,7 +206,7 @@
         try {
           planResponse = await fetchLimited(STUDIO + '/api/plan', {
             method: 'POST', headers: { 'content-type': 'application/json' }, body: request
-          }, 20 * 1024 * 1024, 'AI planner');
+          }, 20 * 1024 * 1024, 'AI planner', 45000);
           break;
         } catch (error) {
           if (attempt !== 0 || ![502, 503].includes(error.status)) throw error;
