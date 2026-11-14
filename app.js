@@ -177,6 +177,32 @@
     if (!layers.length || layers.length > 250) throw Error('PSD needs 1..250 visible raster layers');
     return { width: psd.width, height: psd.height, composite, layers };
   }
+  // The AI model may time out on complex PSDs. This explicitly labelled
+  // technical motion preserves every original source layer at frame zero.
+  // It is not an artistic animation or a substitute for the user's prompt.
+  function technicalFallbackPlan(source) {
+    const root = { id: 'technical_root' };
+    const nodes = [root, ...source.layers.map((layer, i) => ({
+      id: 'source_layer_' + i, asset: layer.id, parent: root.id,
+      transform: {
+        x: layer.bounds.x + layer.bounds.width / 2 - source.width / 2,
+        y: source.height / 2 - layer.bounds.y - layer.bounds.height / 2
+      }
+    }))];
+    return {
+      scene: { version: 1, nodes, drawOrder: nodes.map(n => n.id),
+        clips: [{ id: 'technical_bounce_unapproved', duration: 1.4, tracks: [{
+          target: root.id, property: 'y', keys: [
+            { time: 0, value: 0 }, { time: .2, value: -8 },
+            { time: .5, value: 18 }, { time: .9, value: -4 },
+            { time: 1.4, value: 0 }
+          ]
+        }] }]
+      },
+      validation: { initialPosePreserved: true, drawOrderPreserved: true,
+        sourceLayers: source.layers.length }
+    };
+  }
   async function create() {
     clearDownload();
     $('create').disabled = true;
@@ -201,19 +227,27 @@
         instructions: 'Preserve original draw order and all source layer pixels. Keep frame-zero setup pose. Return complete animated Spine scene. Do not fake 360-degree depth.' });
       if (request.length > 19 * 1024 * 1024) throw Error('PSD exceeds cloud planning limit');
       message('Cloud animation in progress…');
-      let planResponse;
-      for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-          planResponse = await fetchLimited(STUDIO + '/api/plan', {
-            method: 'POST', headers: { 'content-type': 'application/json' }, body: request
-          }, 20 * 1024 * 1024, 'AI planner', 45000);
-          break;
-        } catch (error) {
-          if (attempt !== 0 || ![502, 503].includes(error.status)) throw error;
-          message('AI planner temporarily unavailable; retrying once…');
+      let plan, technicalFallback = false;
+      try {
+        let planResponse;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            planResponse = await fetchLimited(STUDIO + '/api/plan', {
+              method: 'POST', headers: { 'content-type': 'application/json' }, body: request
+            }, 20 * 1024 * 1024, 'AI planner', 45000);
+            break;
+          } catch (error) {
+            if (attempt !== 0 || ![502, 503].includes(error.status)) throw error;
+            message('AI planner temporarily unavailable; retrying once…');
+          }
         }
+        plan = JSON.parse(new TextDecoder().decode(planResponse.bytes));
+      } catch (error) {
+        if (error?.status !== 504 && !/AI planner:.*network timeout/i.test(String(error.message))) throw error;
+        technicalFallback = true;
+        message('AI timed out. Building technical source-preserving motion…');
+        plan = technicalFallbackPlan(source);
       }
-      const plan = JSON.parse(new TextDecoder().decode(planResponse.bytes));
       if (!plan.scene || !Array.isArray(plan.scene.clips) || !plan.scene.clips.length)
         throw Error('Cloud did not return complete animation clips. No incomplete ZIP created.');
       if (plan.validation?.initialPosePreserved !== true || plan.validation?.drawOrderPreserved !== true)
@@ -231,7 +265,7 @@
       downloadURL = URL.createObjectURL(new Blob([result.bytes], { type: 'application/zip' }));
       $('download').href = downloadURL;
       $('download').hidden = false;
-      message('ZIP ready. Check animations in Spine Editor 4.3 before production.');
+      message(technicalFallback ? 'ZIP ready (technical bounce only; AI timed out). Artistic approval pending.' : 'ZIP ready. Check animations in Spine Editor 4.3 before production.');
     } catch (error) {
       message('Generation failed: ' + (error?.name === 'AbortError' ? '15-second network timeout' : error.message));
     } finally {
