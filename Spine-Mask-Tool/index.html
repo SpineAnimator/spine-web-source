@@ -59,12 +59,16 @@ a{color:var(--gold)}[hidden]{display:none!important}
     <h2>01 / Input</h2>
     <label class="file-zone">
       <strong>Drop files or browse</strong>
-      <small>Spine JSON + region PNGs · or PNG / WebP / JPG only</small>
+      <small>Spine JSON + individual region PNGs · or PNG / WebP / JPG alone</small>
       <input id="files" type="file" accept=".json,.spine,.png,.webp,.jpg,.jpeg,image/*" multiple aria-label="Choose skeleton and images">
     </label>
     <div id="target-row" hidden>
-      <label class="field" for="target">Target region</label>
+      <label class="field" for="target">Target region in skeleton</label>
       <select id="target" aria-label="Choose target image in skeleton"></select>
+    </div>
+    <div id="image-row" hidden>
+      <label class="field" for="image-source">Exact source image · PNG / WebP / JPG</label>
+      <select id="image-source" aria-label="Choose exact texture to trace"></select>
     </div>
     <h2 style="margin-top:25px">02 / Contour</h2>
     <div class="small-grid">
@@ -89,7 +93,7 @@ a{color:var(--gold)}[hidden]{display:none!important}
     </div>
     <div class="helper">
       <strong>Spine export:</strong> one <code>clipping</code> attachment, placed immediately before the target region slot with <code>end</code> set to that slot. Existing JSON skeletons are retained, including bones, skins and animations.
-      <p>For image-only input, save both JSON and image.png; put PNG in the Spine <code>images/</code> folder. For binary .spine input, only a standalone JSON mask skeleton can be exported; the binary skeleton is not converted.</p>
+      <p>For image-only input, save both JSON and image.png; put PNG in the Spine <code>images/</code> folder. For existing JSON, select the exact region PNG; a packed atlas sheet is not a region. Binary .spine requires conversion by a licensed Spine Editor and is not silently replaced by a new skeleton.</p>
     </div>
   </section>
 </main>
