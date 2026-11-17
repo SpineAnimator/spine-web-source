@@ -124,7 +124,7 @@ function paintLine(mask, w, h, x1, y1, x2, y2, value, width) {
   let x = x1, y = y1, dx = Math.abs(x2 - x1), dy = Math.abs(y2 - y1);
   const sx = x1 < x2 ? 1 : -1, sy = y1 < y2 ? 1 : -1;
   let err = dx - dy;
-  const radius = (width - 1) / 2;
+  const radius = width / 2;
   while (true) {
     for (let yy = Math.max(0, Math.floor(y - radius)); yy <= Math.min(h - 1, Math.ceil(y + radius)); yy++)
       for (let xx = Math.max(0, Math.floor(x - radius)); xx <= Math.min(w - 1, Math.ceil(x + radius)); xx++)
