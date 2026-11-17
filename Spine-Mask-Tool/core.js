@@ -131,8 +131,13 @@ function paintLine(mask, w, h, x1, y1, x2, y2, value, width) {
         if ((xx - x) ** 2 + (yy - y) ** 2 <= Math.max(0.26, radius * radius + 0.25)) mask[yy * w + xx] = value;
     if (x === x2 && y === y2) break;
     const e2 = err * 2;
-    if (e2 > -dy) { err -= dy; x += sx; }
-    if (e2 < dx) { err += dx; y += sy; }
+    let horizontal = false;
+    if (e2 > -dy) { err -= dy; x += sx; horizontal = true; }
+    if (e2 < dx) {
+      // One-pixel bridges must remain 4-connected even on diagonal routes.
+      if (horizontal && x >= 0 && x < w && y >= 0 && y < h) mask[y * w + x] = value;
+      err += dx; y += sy;
+    }
   }
 }
 function nearestSlit(hole, mask, outside, w, h) {
