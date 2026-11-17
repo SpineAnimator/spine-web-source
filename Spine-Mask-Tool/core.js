@@ -51,6 +51,15 @@ export function imageMask(image, options = {}) {
   }
   // Turn every enclosed background hole into a narrow slit to the exterior.
   // A clipping attachment supports ONE simple polygon, not explicit holes.
+  // Ignore only tiny enclosed antialiasing pinholes. These can also form
+  // where two islands meet after the connector tree is constructed.
+  // Larger openings (eg letter counters) are always preserved.
+  let filledPinholes = 0;
+  for (const component of regions(mask, w, h, 0)) {
+    if (component.touches || component.pixels.length > 2) continue;
+    for (const p of component.pixels) mask[p] = 1;
+    filledPinholes++;
+  }
   let slits = 0, holeSeeds = [];
   for (let attempt = 0; attempt < 4; attempt++) {
     const back = regions(mask, w, h, 0);
@@ -63,7 +72,7 @@ export function imageMask(image, options = {}) {
     let progress = 0;
     for (const hole of holes) {
       if (attempt === 0) holeSeeds.push(hole.pixels[Math.floor(hole.pixels.length / 2)]);
-      const cut = nearestSlit(hole, mask, outer, w, h);
+      const cut = safeSlit(hole, mask, outer, w, h);
       if (!cut) continue;
       paintLine(mask, w, h, cut.x1, cut.y1, cut.x2, cut.y2, 0, 1);
       slits++; progress++;
@@ -90,7 +99,7 @@ export function imageMask(image, options = {}) {
   if (!polygon) throw Error("No simple, valid single-contour polygon could be formed. Try a larger bridge or reduce detail.");
   return {
     points: polygon, analysisWidth: w, analysisHeight: h, binary: mask,
-    stats: { vertices: polygon.length, shapes: comps.length, bridges, slits, ignored: removed, transparent }
+    stats: { vertices: polygon.length, shapes: comps.length, bridges, slits, filledPinholes, ignored: removed, transparent }
   };
 }
 function samples(a, max) {
@@ -140,24 +149,37 @@ function paintLine(mask, w, h, x1, y1, x2, y2, value, width) {
     }
   }
 }
-function nearestSlit(hole, mask, outside, w, h) {
-  let best = null;
+function safeSlit(hole, mask, outside, w, h) {
+  const candidates = [], seen = new Set();
+  // Straight shortest cuts can sever narrow bridges. Check each candidate
+  // on a temporary mask and accept only cuts preserving a connected foreground.
   for (const p of samples(hole.border, 650)) {
     const x = p % w, y = (p / w) | 0;
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       let xx = x + dx, yy = y + dy, solid = 0;
       while (xx >= 0 && xx < w && yy >= 0 && yy < h && solid < 350) {
-        const id = yy * w + xx;
-        if (!mask[id]) {
-          if (outside[id] && solid && (!best || solid < best.solid))
-            best = { x1: x, y1: y, x2: xx, y2: yy, solid };
+        const index = yy * w + xx;
+        if (!mask[index]) {
+          if (outside[index] && solid) {
+            const key = [x, y, xx, yy].join(":");
+            if (!seen.has(key)) {
+              seen.add(key);
+              candidates.push({ x1: x, y1: y, x2: xx, y2: yy, solid });
+            }
+          }
           break;
         }
         solid++; xx += dx; yy += dy;
       }
     }
   }
-  return best;
+  candidates.sort((a, b) => a.solid - b.solid);
+  for (const cut of candidates) {
+    const trial = new Uint8Array(mask);
+    paintLine(trial, w, h, cut.x1, cut.y1, cut.x2, cut.y2, 0, 1);
+    if (regions(trial, w, h, 1).length === 1) return cut;
+  }
+  return null;
 }
 function traceBoundary(mask, w, h) {
   const edges = [], starts = new Map();
