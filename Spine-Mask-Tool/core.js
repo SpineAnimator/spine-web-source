@@ -76,18 +76,18 @@ export function imageMask(image, options = {}) {
   const loops = traceBoundary(mask, w, h);
   if (loops.length !== 1) throw Error("Expected one continuous outline, received " + loops.length + ".");
   const raw = compressCollinear(loops[0]);
-  let polygon = raw;
+  let polygon = null;
   const desiredEpsilon = Math.max(0, Math.min(3, Number(options.simplify ?? 0.55)));
   // Never sacrifice hole exclusions or polygon simplicity for aggressive reduction.
   for (const eps of [desiredEpsilon, desiredEpsilon / 2, desiredEpsilon / 4, 0]) {
     const candidate = eps ? simplifyRing(raw, eps) : raw;
     if (candidate.length < 3) continue;
-    if (candidate.length < 2500 && intersects(candidate)) continue;
+    if (candidate.length > 5000 || intersects(candidate)) continue;
     if (holeSeeds.some(p => pointInPolygon((p % w) + 0.5, Math.floor(p / w) + 0.5, candidate))) continue;
     polygon = candidate;
     break;
   }
-  if (polygon.length > 5000) throw Error("Mask exceeds 5000 vertices; increase smoothing or reduce image size.");
+  if (!polygon) throw Error("No simple, valid single-contour polygon could be formed. Try a larger bridge or reduce detail.");
   return {
     points: polygon, analysisWidth: w, analysisHeight: h, binary: mask,
     stats: { vertices: polygon.length, shapes: comps.length, bridges, slits, ignored: removed, transparent }
@@ -277,7 +277,7 @@ export function maskVertices(points, sourceW, sourceH, region = {}) {
 const round = n => Math.round(n * 10000) / 10000;
 export function exportJson(original, target, points, sourceW, sourceH) {
   const data = original ? JSON.parse(JSON.stringify(original)) : {
-    skeleton: { spine: "4.3.26", width: sourceW, height: sourceH, images: "./images/" },
+    skeleton: { spine: "4.3.26", x: -sourceW / 2, y: -sourceH / 2, width: sourceW, height: sourceH, images: "./images/" },
     bones: [{ name: "root" }],
     slots: [{ name: "image", bone: "root", attachment: "image" }],
     skins: [{ name: "default", attachments: {
