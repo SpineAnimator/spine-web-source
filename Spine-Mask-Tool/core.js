@@ -5,7 +5,7 @@ export function imageMask(image, options = {}) {
   const alpha = Math.min(254, Math.max(0, Number(options.alpha ?? 24)));
   const tolerance = Math.max(1, Number(options.tolerance ?? 48));
   const minArea = Math.max(1, Math.round(Number(options.minArea ?? 3)));
-  const bridgeWidth = Math.max(1, Math.min(5, Number(options.bridgeWidth ?? 2)));
+  const bridgeWidth = Math.max(1, Math.min(5, Number(options.bridgeWidth ?? 1)));
   const d = image.data, mask = new Uint8Array(total);
   let transparent = false;
   for (let i = 3; i < d.length; i += 4) if (d[i] < 250) { transparent = true; break; }
