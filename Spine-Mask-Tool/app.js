@@ -17,6 +17,11 @@ function clearResult() {
 function basename(x) { return String(x || "").replace(/\\/g, "/").split("/").pop().replace(/\.[^.]+$/, "").toLowerCase(); }
 function setTargets() {
   const choices = state.json ? availableRegions(state.json) : [];
+  const imagePicker = $("image-source");
+  imagePicker.replaceChildren();
+  imagePicker.add(new Option("Choose an image...", ""));
+  for (let i = 0; i < state.images.length; i++) imagePicker.add(new Option(state.images[i].file.name, String(i)));
+  $("image-row").hidden = state.images.length === 0;
   targetInput.replaceChildren();
   for (let i = 0; i < choices.length; i++) {
     const c = choices[i], opt = document.createElement("option");
@@ -62,21 +67,25 @@ async function addFiles(fileList) {
     }
     setTargets();
     selectSource();
-    if (state.binary) status("Binary .spine received. Mask will export as a separate JSON skeleton; binary data is never silently altered.");
+    if (state.binary && !state.json) status("Binary .spine received. Native conversion is required first; the browser will not invent a replacement skeleton.", true);
     else if (state.json) status("Spine JSON loaded. Select a region and generate its clipping mask.");
     else if (state.images.length) status("Image loaded. A new Spine 4.3 skeleton with one clipping attachment will be created.");
     else status("Drop an image PNG, or a Spine JSON with the region image.");
   } catch (e) { status(e.message, true); }
 }
-function selectSource() {
+function selectSource(fromPicker = false) {
   const selected = state.choices?.[Number(targetInput.value)] || null;
-  let imageRecord;
-  if (selected) {
-    const path = basename(selected.path);
-    imageRecord = state.images.find(f => basename(f.file.name) === path) ||
-      state.images.find(f => basename(f.file.name) === basename(selected.attachment));
+  const picker = $("image-source");
+  if (!fromPicker) {
+    let matched = -1;
+    if (selected) {
+      matched = state.images.findIndex(f => basename(f.file.name) === basename(selected.path));
+      if (matched < 0) matched = state.images.findIndex(f => basename(f.file.name) === basename(selected.attachment));
+    } else if (!state.json && state.images.length === 1) matched = 0;
+    picker.value = matched < 0 ? "" : String(matched);
   }
-  imageRecord ||= state.images[0];
+  const index = picker.value === "" ? -1 : Number(picker.value);
+  const imageRecord = index >= 0 ? state.images[index] : null;
   state.source = imageRecord?.image || null;
   state.sourceFile = imageRecord?.file || null;
   if (state.source) {
@@ -123,7 +132,11 @@ function selectedRegion() {
   return state.choices?.[Number(targetInput.value)] || null;
 }
 async function generate() {
-  if (!state.source) { status("Upload the selected image file first.", true); return; }
+  if (state.binary && !state.json) {
+    status("Binary .spine needs conversion by a licensed Spine Editor. It cannot be merged into this browser-only JSON exporter.", true);
+    return;
+  }
+  if (!state.source) { status("Select the exact PNG region to trace (not a packed atlas page).", true); return; }
   if (state.json && !selectedRegion()) { status("Select a region attachment from the skeleton.", true); return; }
   $("generate").disabled = true;
   status("Tracing all visible parts and connecting the internal contours…");
@@ -164,7 +177,8 @@ async function generate() {
   } finally { $("generate").disabled = false; }
 }
 filesInput.addEventListener("change", e => addFiles(e.target.files));
-targetInput.addEventListener("change", selectSource);
+targetInput.addEventListener("change", () => selectSource());
+$("image-source").addEventListener("change", () => selectSource(true));
 $("generate").addEventListener("click", generate);
 $("show-points").addEventListener("change", () => showPreview(state.result?.mask));
 $("download-json").addEventListener("click", () => {
@@ -184,6 +198,7 @@ $("reset").addEventListener("click", () => {
   state.images = []; state.json = null; state.binary = null; state.source = null;
   state.sourceFile = null; state.choices = []; filesInput.value = "";
   targetInput.replaceChildren(); $("target-row").hidden = true;
+  $("image-source").replaceChildren(); $("image-row").hidden = true;
   $("source-name").textContent = "No image supplied";
   ctx.clearRect(0, 0, canvas.width, canvas.height); clearResult();
   status("Drop a Spine JSON and its images, or just one PNG.");
