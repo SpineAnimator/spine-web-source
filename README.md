@@ -4,7 +4,7 @@ This repository is generated from an explicit **frontend-only allowlist** mainta
 
 ## Boundary
 
-Published: website HTML, CSS and user-facing JavaScript to accept PSD artwork, request a cloud animation, and download a server-generated ZIP.
+Published: website HTML, CSS and user-facing JavaScript to accept PSD artwork, request a cloud animation, and download a server-generated ZIP. Also published: the separate browser-only Spine-Mask-Tool/index.html, app.js, and core.js for tracing single clipping polygons and exporting Spine JSON.
 
 Not published: Spine Editor license, Linux executables, 3Spine decompiler, private PSD tools, animation engine internals, CI secrets, servers, test fixtures or source repository history.
 
