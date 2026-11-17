@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="description" content="Make one continuous Spine clipping polygon around letters and image regions.">
+<title>Spine Mask Tool</title>
+<style>
+:root{color-scheme:dark;font-family:Inter,ui-sans-serif,system-ui,-apple-system,Arial,sans-serif;--bg:#090c11;--panel:#141921;--border:#2c343f;--muted:#a6b0bc;--text:#f4f6f8;--gold:#ffa337;--input:#0d1118}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 20% -12%,#2b241c 0,transparent 42%),var(--bg);color:var(--text);min-height:100vh}
+header,main,footer{max-width:1260px;margin:auto;padding:0 24px}
+header{display:flex;justify-content:space-between;align-items:center;gap:12px;padding-top:24px;padding-bottom:22px;border-bottom:1px solid var(--border)}
+.logo{font-weight:800;letter-spacing:.13em;font-size:16px}.logo b{color:var(--gold)}.version{color:var(--muted);font-size:12px}
+h1{font-size:clamp(28px,3.5vw,42px);letter-spacing:-.04em;margin:30px 0 5px}
+.sub{font-size:14px;line-height:1.6;color:var(--muted);margin:0 0 22px}
+main{display:grid;grid-template-columns:minmax(300px,410px) minmax(320px,1fr);align-items:start;gap:20px;padding-bottom:40px}
+.intro{grid-column:1/-1}.panel{border-radius:18px;border:1px solid var(--border);background:var(--panel);padding:22px}
+h2{font-size:14px;letter-spacing:.08em;text-transform:uppercase;margin:0 0 16px;color:#e6edf6}
+.file-zone{display:block;position:relative;border:1px dashed #6f6147;padding:24px 18px;background:#191913;border-radius:14px;text-align:center;min-height:126px;cursor:pointer}
+.file-zone:hover,.dragging .file-zone{border-color:var(--gold);background:#292111}
+.file-zone input{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer}
+.file-zone strong{display:block;font-size:17px;margin-bottom:6px}.file-zone small{display:block;color:var(--muted);line-height:1.5}
+label.field{display:block;color:var(--muted);font-size:12px;font-weight:650;margin:18px 0 7px}
+select,input[type=number]{background:var(--input);color:var(--text);width:100%;padding:12px 13px;border:1px solid var(--border);border-radius:10px;font:inherit;font-size:13px}
+input[type=range]{width:100%;accent-color:var(--gold);margin:9px 0}
+.setting{margin-top:16px}.setting label{font-size:12px;color:var(--muted);display:flex;align-items:center;justify-content:space-between}
+.small-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:0 16px}
+.tip{font-size:12px;color:var(--muted);line-height:1.6;margin-top:18px}
+.row{display:flex;align-items:center;gap:10px;margin-top:18px}.row button{flex:1}
+button{border:1px solid var(--border);border-radius:10px;background:#252e39;color:#f4f6f8;min-height:44px;font:inherit;font-weight:700;font-size:13px;padding:12px 16px;cursor:pointer;white-space:nowrap}
+button.primary{background:var(--gold);color:#1a1005;border-color:var(--gold)}
+button:hover:not(:disabled){filter:brightness(1.12)}button:disabled{opacity:.35;cursor:not-allowed}
+button:focus-visible,select:focus-visible,.file-zone:focus-within{outline:2px solid var(--gold);outline-offset:3px}
+.preview-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.preview-head label{font-size:12px;color:var(--muted)}input[type=checkbox]{accent-color:var(--gold)}
+.stage{min-height:290px;height:min(54vh,600px);border:1px solid #303944;border-radius:12px;display:grid;place-items:center;overflow:hidden;background-color:#10151c;background-image:linear-gradient(45deg,#161e28 25%,transparent 25%),linear-gradient(-45deg,#161e28 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#161e28 75%),linear-gradient(-45deg,transparent 75%,#161e28 75%);background-size:24px 24px;background-position:0 0,0 12px,12px -12px,-12px 0}
+canvas{width:100%;height:100%;object-fit:contain}
+.source{font-size:12px;color:var(--muted);margin:12px 0;overflow-wrap:anywhere}
+.summary{font-size:13px;font-weight:700;color:#ffd49c;min-height:22px}
+.status{font-size:12px;color:#b1becb;line-height:1.5;min-height:36px;margin-top:14px}
+.status[data-error=yes]{color:#ffaaa4}
+.helper{font-size:12px;line-height:1.6;color:var(--muted);border-top:1px solid var(--border);margin-top:18px;padding-top:14px}
+.helper strong{color:var(--text)}.downloads{margin-top:18px;display:flex;flex-wrap:wrap;gap:10px}.downloads button{flex:1}
+footer{border-top:1px solid var(--border);padding-top:16px;padding-bottom:22px;font-size:12px;color:var(--muted)}
+a{color:var(--gold)}[hidden]{display:none!important}
+@media(max-width:850px){main{grid-template-columns:1fr}.intro{grid-column:1}.stage{height:min(50vh,480px)}}
+@media(max-width:520px){header,main,footer{padding-left:14px;padding-right:14px}.panel{padding:16px}.small-grid{gap:0 12px}}
+</style>
+</head>
+<body>
+<header><div class="logo">SPINE <b>MASK</b> TOOL</div><span class="version">4.3 · Single clip</span></header>
+<main>
+  <section class="intro">
+    <h1>One image. One mask.</h1>
+    <p class="sub">Trace every letter and inner opening as a single continuous clipping polygon. Import a Spine JSON + selected region image, or start from a PNG.</p>
+  </section>
+  <section class="panel" aria-label="Source and settings">
+    <h2>01 / Input</h2>
+    <label class="file-zone">
+      <strong>Drop files or browse</strong>
+      <small>Spine JSON + region PNGs · or PNG / WebP / JPG only</small>
+      <input id="files" type="file" accept=".json,.spine,.png,.webp,.jpg,.jpeg,image/*" multiple aria-label="Choose skeleton and images">
+    </label>
+    <div id="target-row" hidden>
+      <label class="field" for="target">Target region</label>
+      <select id="target" aria-label="Choose target image in skeleton"></select>
+    </div>
+    <h2 style="margin-top:25px">02 / Contour</h2>
+    <div class="small-grid">
+      <div class="setting"><label for="alpha">Alpha threshold <span id="av">24</span></label><input id="alpha" type="range" min="1" max="220" value="24"></div>
+      <div class="setting"><label for="bridge">Bridge width <span id="bv">2</span></label><input id="bridge" type="range" min="1" max="5" step="1" value="2"></div>
+      <div class="setting"><label for="smooth">Smooth <span id="sv">0.55</span></label><input id="smooth" type="range" min="0" max="3" step=".05" value=".55"></div>
+      <div class="setting"><label for="area">Min area <span id="mv">3</span></label><input id="area" type="range" min="1" max="25" value="3"></div>
+      <div class="setting"><label for="tolerance">Background threshold <span id="tv">48</span></label><input id="tolerance" type="range" min="1" max="120" value="48"></div>
+    </div>
+    <p class="tip">Transparent images use alpha. Opaque images use corner background colors. The tool joins separate islands and cuts narrow passages to enclosed holes.</p>
+    <div class="row"><button class="primary" id="generate">Generate mask</button><button id="reset">Reset</button></div>
+    <div id="status" class="status" role="status" aria-live="polite"></div>
+  </section>
+  <section class="panel" aria-label="Mask preview and export">
+    <div class="preview-head"><h2>03 / Preview</h2><label><input type="checkbox" id="show-points"> Vertices</label></div>
+    <div class="stage"><canvas id="preview" width="600" height="400" aria-label="Source image and generated mask outline"></canvas></div>
+    <p id="source-name" class="source">No image supplied</p>
+    <div class="summary" id="summary">No mask generated.</div>
+    <div class="downloads">
+      <button class="primary" id="download-json" disabled>Download JSON</button>
+      <button id="download-png" hidden>Download image.png</button>
+    </div>
+    <div class="helper">
+      <strong>Spine export:</strong> one <code>clipping</code> attachment, placed immediately before the target region slot with <code>end</code> set to that slot. Existing JSON skeletons are retained, including bones, skins and animations.
+      <p>For image-only input, save both JSON and image.png; put PNG in the Spine <code>images/</code> folder. For binary .spine input, only a standalone JSON mask skeleton can be exported; the binary skeleton is not converted.</p>
+    </div>
+  </section>
+</main>
+<footer>Browser-only processing · No image uploads · <a href="https://esotericsoftware.com/spine-clipping" rel="noopener" target="_blank">Spine clipping documentation</a></footer>
+<script type="module" src="./app.js"></script>
+<script>
+for(const [control,label] of [["alpha","av"],["bridge","bv"],["smooth","sv"],["area","mv"],["tolerance","tv"]]){
+ const a=document.getElementById(control),b=document.getElementById(label);
+ a.addEventListener("input",()=>{b.textContent=a.value});
+}
+</script>
+</body>
+</html>
