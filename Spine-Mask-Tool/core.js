@@ -276,7 +276,7 @@ export function maskVertices(points, sourceW, sourceH, region = {}) {
 }
 const round = n => Math.round(n * 10000) / 10000;
 export function exportJson(original, target, points, sourceW, sourceH) {
-  const data = original ? structuredClone(original) : {
+  const data = original ? JSON.parse(JSON.stringify(original)) : {
     skeleton: { spine: "4.3.26", width: sourceW, height: sourceH, images: "./images/" },
     bones: [{ name: "root" }],
     slots: [{ name: "image", bone: "root", attachment: "image" }],
