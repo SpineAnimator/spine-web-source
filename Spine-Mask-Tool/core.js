@@ -24,6 +24,15 @@ export function imageMask(image, options = {}) {
     removed++;
   }
   comps = regions(mask, w, h, 1);
+  // Visible silhouette is captured BEFORE any connector or inner-hole slit.
+  // This is the only coverage map used for rendering second images. It prevents
+  // even one pixel of the invisible single-clip routing geometry from appearing.
+  const visibleMask = new Uint8Array(mask);
+  const visibleAlpha = new Uint8ClampedArray(total);
+  for (let i = 0; i < total; i++) {
+    if (!visibleMask[i]) continue;
+    visibleAlpha[i] = transparent ? d[i * 4 + 3] : 255;
+  }
   if (!comps.length) throw Error("No opaque artwork found. Adjust alpha/background threshold.");
   if (comps.length > 150) throw Error("Too many disconnected shapes (over 150). Increase minimum area.");
   let bridges = 0;
@@ -99,6 +108,7 @@ export function imageMask(image, options = {}) {
   if (!polygon) throw Error("No simple, valid single-contour polygon could be formed. Try a larger bridge or reduce detail.");
   return {
     points: polygon, analysisWidth: w, analysisHeight: h, binary: mask,
+    visibleMask, visibleAlpha,
     stats: { vertices: polygon.length, shapes: comps.length, bridges, slits, filledPinholes, ignored: removed, transparent }
   };
 }
