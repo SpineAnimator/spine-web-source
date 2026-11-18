@@ -150,9 +150,25 @@ async function addFiles(fileList, fromBridge = false) {
         status("Atlas metadata was supplied. Select an individual region PNG, not the packed atlas page.");
       }
     }
+    let convertError=null;
+    if(state.binary && !state.json && /\.spine$/i.test(state.binary.name)){
+      try {
+        status("Converting selected .spine using the locally installed Spine Editor…");
+        const data=await convertLocalSpineBinary(state.binary);
+        if(!Array.isArray(data.slots)||!data.skins)throw Error("Spine CLI exported invalid skeleton data.");
+        state.json=data;
+        state.base=basename(state.binary.name);
+        state.binary=null;
+      }catch(error){
+        convertError=String(error?.message||error);
+        $("bridge-setup").open=true;
+      }
+    }
     setTargets();
     selectSource();
-    if (state.binary && !state.json) status("Binary .spine / .skel needs conversion. Import from Spine Editor using the Bridge, or supply its exported JSON with region PNGs.", true);
+    if (state.binary && !state.json && convertError)
+      status("Native Spine conversion: "+convertError+" · Install Bridge or choose a JSON export with images.",true);
+    else if (state.binary && !state.json) status("Binary .spine / .skel needs conversion. Import from Spine Editor using the Bridge, or supply its exported JSON with region PNGs.", true);
     else if (state.json) status("Spine JSON loaded. Select a region and generate its clipping mask.");
     else if (state.images.length) status("Image loaded. A new Spine 4.3 skeleton with one clipping attachment will be created.");
     else status("No Spine JSON or region image found. Select a project ZIP, folder or exported Spine JSON with images.", true);
@@ -586,9 +602,61 @@ async function readBridgeFile(session,item){
   }
   return new File(parts,item.name,{type:imageFileMime(item.name)});
 }
-async function connectEditor(auto=false){
+
+// The browser's user-selected .spine bytes are sent ONLY to the local Chrome
+// Native Messaging host. No server, absolute path or filesystem read is used.
+async function convertLocalSpineBinary(file){
+  if(file.size<=0||file.size>32*1024*1024)
+    throw Error("Native conversion supports .spine files up to 32 MB.");
+  const response=await requestBridge("ping",{},5500);
+  if(response?.protocol!=="spinemask/1")throw Error("Spine Mask Bridge needs an update.");
+  const raw=new Uint8Array(await file.arrayBuffer());
+  const hashed=new Uint8Array(await crypto.subtle.digest("SHA-256",raw));
+  const digest=[...hashed].map(x=>x.toString(16).padStart(2,"0")).join("");
+  const start=await requestBridge("begin_import",{
+    name:file.name,size:raw.length,sha256:digest
+  },15000);
+  if(!start?.session)throw Error("Local Spine import session unavailable.");
+  const chunkSize=48*1024;
+  for(let offset=0;offset<raw.length;offset+=chunkSize){
+    const piece=raw.subarray(offset,Math.min(offset+chunkSize,raw.length));
+    const res=await requestBridge("import_chunk",{
+      session:start.session,offset,base64:encode64(piece)
+    },25000);
+    if(res?.written!==offset+piece.length)
+      throw Error("Spine native import verification failed.");
+  }
+  const completed=await requestBridge("finish_import",{session:start.session},195000);
+  if(!completed||completed.session!==start.session||
+     !Number.isInteger(completed.size)||completed.size<20||completed.size>32*1024*1024)
+    throw Error("Native Spine export did not return valid JSON metadata.");
+  const blocks=[],expected=completed.size;
+  let received=0;
+  while(received<expected){
+    const res=await requestBridge("read_import_chunk",{
+      session:start.session,offset:received
+    },25000);
+    if(!res||res.offset!==received||res.total!==expected)
+      throw Error("Native Spine export changed during read.");
+    const part=decode64(res.base64||"");
+    if(!part.length||received+part.length>expected)
+      throw Error("Invalid native JSON data chunk.");
+    blocks.push(part);received+=part.length;
+  }
+  const buffer=new Uint8Array(expected);
+  let offset=0;
+  for(const block of blocks){buffer.set(block,offset);offset+=block.length;}
+  try{return JSON.parse(new TextDecoder().decode(buffer));}
+  catch(error){throw Error("Spine native export returned invalid JSON.");}
+}
+
+async function connectEditor(auto=false,choose=false){
   if(connectEditor.busy){
-    if(!auto){connectEditor.manualQueued=true;bridgeStatus("Completing initial bridge check; import will start automatically…");}
+    if(!auto){
+      connectEditor.manualQueued=true;
+      connectEditor.chooseQueued=!!choose || !!connectEditor.chooseQueued;
+      bridgeStatus("Completing bridge check; requested import will start automatically…");
+    }
     return;
   }
   connectEditor.busy=true;
@@ -596,7 +664,7 @@ async function connectEditor(auto=false){
   try{
     const ping=await requestBridge("ping",{},auto?3200:6000);
     if(ping?.protocol!=="spinemask/1")throw Error("Outdated Chrome native bridge.");
-    const opened=await requestBridge("open_project",{},210000);
+    const opened=await requestBridge(choose?"choose_project":"open_project",{},210000);
     if(!opened?.open){
       bridgeStatus("Chrome bridge connected · no unambiguous open Spine project ("+
         (opened?.reason||"not detected")+")");
@@ -623,7 +691,9 @@ async function connectEditor(auto=false){
     connectEditor.busy=false;
     if(connectEditor.manualQueued){
       connectEditor.manualQueued=false;
-      void connectEditor(false);
+      const queuedChoice=!!connectEditor.chooseQueued;
+      connectEditor.chooseQueued=false;
+      void connectEditor(false,queuedChoice);
     }
   }
 }
@@ -677,6 +747,7 @@ async function writeToEditor(epoch){
   }
 }
 $("bridge-refresh").addEventListener("click",()=>connectEditor(false));
+$("bridge-choose").addEventListener("click",()=>connectEditor(false,true));
 window.addEventListener("message",event=>{
   if(event.source===window&&event.origin===location.origin&&
      event.data?.channel===BRIDGE_CHANNEL&&event.data.type==="ready")
