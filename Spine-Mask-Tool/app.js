@@ -4,6 +4,8 @@ const $ = id => document.getElementById(id);
 const filesInput = $("files"), targetInput = $("target"), canvas = $("preview");
 const ctx = canvas.getContext("2d", { willReadFrequently: true });
 const state = { images: [], json: null, binary: null, source: null, sourceFile: null, result: null, base: "mask", fillImage: null, bridge: null };
+let quickPickerArmed = false;
+let quickBusy = false;
 function status(message, error = false) {
   $("status").textContent = message;
   $("status").dataset.error = error ? "yes" : "no";
@@ -262,6 +264,17 @@ function downloadBlob(blob, filename) {
   a.href = url; a.download = filename; document.body.append(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
+function setAgentMode(enabled) {
+  document.body.classList.toggle("agent-mode", !!enabled);
+  const toggle = $("agent-toggle");
+  toggle.textContent = enabled ? "Simple" : "Agents";
+  toggle.setAttribute("aria-expanded", String(!!enabled));
+}
+setAgentMode(new URLSearchParams(location.search).get("mode") === "agent");
+$("agent-toggle").addEventListener("click", () => {
+  setAgentMode(!document.body.classList.contains("agent-mode"));
+});
+
 function selectedRegion() {
   return targetInput.value === "" ? null : (state.choices?.[Number(targetInput.value)] || null);
 }
@@ -323,11 +336,57 @@ filesInput.addEventListener("change", e => {
 $("open-project").addEventListener("click",()=> $("project-files").click());
 $("open-folder").addEventListener("click",()=> $("project-folder").click());
 $("open-editor").addEventListener("click",()=> void connectEditor(false));
-$("project-files").addEventListener("change",e=>{void importProjectFiles(e.target.files,true);});
+$("project-files").addEventListener("change", async e => {
+  const runQuick = quickPickerArmed;
+  quickPickerArmed = false;
+  if (!e.target.files?.length) return;
+  await importProjectFiles(e.target.files, true);
+  if (runQuick) await doEverything();
+});
 $("project-folder").addEventListener("change",e=>{void importProjectFiles(e.target.files,true);});
 targetInput.addEventListener("change", () => {selectSource();if(state.source)generate();});
 $("image-source").addEventListener("change", () => {selectSource(true);if(state.source)generate();});
 $("generate").addEventListener("click", generate);
+
+// Reuse the validated generator and preserved-project ZIP exporter. Never
+// replace the original upload or silently choose an ambiguous Spine region.
+async function doEverything() {
+  if (quickBusy) return;
+  if (!state.source && !state.json && !state.binary) {
+    quickPickerArmed = true;
+    $("project-files").click();
+    return;
+  }
+  if (state.binary && !state.json) {
+    setAgentMode(true);
+    status("This binary Spine project needs the native Bridge or an exported JSON with images.", true);
+    return;
+  }
+  if (!state.source || (state.json && !selectedRegion())) {
+    setAgentMode(true);
+    status("Cannot safely identify the image to mask. Choose an exact region and texture in Agents, then switch to Simple and run Make all.", true);
+    return;
+  }
+  quickBusy = true;
+  const button = $("do-all");
+  button.disabled = true;
+  button.textContent = "Working…";
+  try {
+    if (!state.result) await generate();
+    if (!state.result) throw Error($("status").textContent || "Mask validation failed.");
+    const zip = await buildPreservedSpineProjectZip();
+    downloadBlob(new Blob([zip], { type: "application/zip" }),
+      (state.base || "mask") + "-complete-spine-mask.zip");
+    status("Done. One clipping mask generated and complete Spine ZIP downloaded.");
+  } catch (error) {
+    status("Automatic mask export failed: " + error.message, true);
+  } finally {
+    quickBusy = false;
+    button.disabled = false;
+    button.textContent = "Make all";
+  }
+}
+$("do-all").addEventListener("click", () => void doEverything());
 $("highlight-edges").addEventListener("change", () => {
   if(state.source&&(!state.json||selectedRegion()))generate();
 });
