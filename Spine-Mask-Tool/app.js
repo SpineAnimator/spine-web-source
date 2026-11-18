@@ -1,4 +1,4 @@
-import { imageMask, availableRegions, exportJson } from "./core.js";
+import { imageMask, availableRegions, exportJson, maskVertices } from "./core.js";
 
 const $ = id => document.getElementById(id);
 const filesInput = $("files"), targetInput = $("target"), canvas = $("preview");
@@ -12,6 +12,13 @@ function clearResult() {
   state.result = null;
   $("download-json").disabled = true;
   $("download-png").hidden = true;
+  $("native-preview").disabled = true;
+  $("native-result").hidden = true;
+  $("native-status").textContent = "";
+  if (state.nativeAbort) state.nativeAbort.abort();
+  if (state.nativeURL) URL.revokeObjectURL(state.nativeURL);
+  state.nativeURL = null;
+
   $("summary").textContent = "No mask generated.";
 }
 function basename(x) { return String(x || "").replace(/\\/g, "/").split("/").pop().replace(/\.[^.]+$/, "").toLowerCase(); }
@@ -164,6 +171,7 @@ async function generate() {
     state.result = { mask, json: output.json, slot: output.slot, imageOnly: !state.json };
     showPreview(mask);
     $("download-json").disabled = false;
+    $("native-preview").disabled = false;
     $("download-png").hidden = !!state.json;
     const s = mask.stats;
     $("summary").textContent = "ONE CLIPPING MASK · " + s.vertices + " vertices · " +
@@ -201,7 +209,132 @@ $("reset").addEventListener("click", () => {
   $("image-source").replaceChildren(); $("image-row").hidden = true;
   $("source-name").textContent = "No image supplied";
   ctx.clearRect(0, 0, canvas.width, canvas.height); clearResult();
-  status("Drop a Spine JSON and its images, or just one PNG.");
+  
+// Upload only selected clipping vertices and the user-authorized replacement
+// texture, never the source artwork itself. The gateway erases data after a
+// successful result retrieval, or when its short retention expires.
+const NATIVE_GATEWAY="https://spine-mask-native-gateway.vladyslavchaplygin.workers.dev";
+const bytes=x=>new TextEncoder().encode(x);
+function crc32(data){
+  let v=0xffffffff;
+  for (const n of data){v^=n;for(let i=0;i<8;i++)v=(v>>>1)^((v&1)?0xedb88320:0)}
+  return (v^0xffffffff)>>>0;
+}
+function zipMemory(files){
+  const locals=[],centrals=[];let offset=0;
+  const join=items=>{const n=items.reduce((v,x)=>v+x.length,0),out=new Uint8Array(n);let p=0;for(const x of items){out.set(x,p);p+=x.length}return out};
+  for(const [name,data] of files){
+    const n=bytes(name),size=data.length,c=crc32(data);
+    const a=new Uint8Array(30),v=new DataView(a.buffer);
+    v.setUint32(0,0x04034b50,true);v.setUint16(4,20,true);
+    v.setUint32(14,c,true);v.setUint32(18,size,true);v.setUint32(22,size,true);v.setUint16(26,n.length,true);
+    locals.push(a,n,data);
+    const b=new Uint8Array(46),w=new DataView(b.buffer);
+    w.setUint32(0,0x02014b50,true);w.setUint16(4,20,true);w.setUint16(6,20,true);
+    w.setUint32(16,c,true);w.setUint32(20,size,true);w.setUint32(24,size,true);w.setUint16(28,n.length,true);
+    w.setUint32(42,offset,true);
+    centrals.push(b,n);
+    offset+=a.length+n.length+size;
+  }
+  const cd=join(centrals),eocd=new Uint8Array(22),dv=new DataView(eocd.buffer);
+  dv.setUint32(0,0x06054b50,true);dv.setUint16(8,files.length,true);dv.setUint16(10,files.length,true);
+  dv.setUint32(12,cd.length,true);dv.setUint32(16,offset,true);
+  return join([...locals,cd,eocd]);
+}
+function nativeStatus(text,error=false){
+  $("native-status").textContent=text;
+  $("native-status").dataset.error=error?"yes":"no";
+}
+async function nativeRender(){
+  if(!state.result||!state.source)return;
+  const mask=state.result.mask;
+  if(mask.points.length>2500){nativeStatus("Native Editor limit: simplify mask below 2500 vertices.",true);return;}
+  $("native-preview").disabled=true;
+  $("native-result").hidden=true;
+  state.nativeAbort?.abort();
+  if(state.nativeURL)URL.revokeObjectURL(state.nativeURL);
+  state.nativeURL=null;
+  const controller=new AbortController();
+  state.nativeAbort=controller;
+  const signal=controller.signal;
+  try{
+    const sw=state.source.width,sh=state.source.height;
+    const ratio=Math.min(1,512/Math.max(sw,sh));
+    const w=Math.max(1,Math.round(sw*ratio)),h=Math.max(1,Math.round(sh*ratio));
+    const scaled=mask.points.map(([x,y])=>[x*w/mask.analysisWidth,y*h/mask.analysisHeight]);
+    const vertices=maskVertices(scaled,w,h,{width:w,height:h});
+    const scene={
+      skeleton:{spine:"4.3.26",x:-w/2,y:-h/2,width:w,height:h,images:"./images/"},
+      bones:[{name:"root"}],
+      slots:[{name:"mask",bone:"root",attachment:"clip"},{name:"fill",bone:"root",attachment:"fill"}],
+      skins:[{name:"default",attachments:{
+        mask:{clip:{type:"clipping",end:"fill",vertexCount:scaled.length,vertices}},
+        fill:{fill:{type:"region",path:"fill",width:w,height:h}}
+      }}],
+      animations:{"mask-preview":{bones:{root:{translate:[{time:0,x:0,y:0},{time:.1,x:0,y:0}]}}}}
+    };
+    const c=document.createElement("canvas");c.width=w;c.height=h;
+    const x=c.getContext("2d");
+    const secondary=$("native-fill").files?.[0];
+    if(secondary){
+      const img=await decode(secondary);x.drawImage(img,0,0,w,h);img.close?.();
+    }else{
+      const g=x.createLinearGradient(0,0,w,h);
+      g.addColorStop(0,"#2192e4");g.addColorStop(.5,"#12bdad");g.addColorStop(1,"#f39922");
+      x.fillStyle=g;x.fillRect(0,0,w,h);
+    }
+    const png=await new Promise((resolve,reject)=>c.toBlob(b=>b?resolve(b):reject(Error("Could not encode replacement image.")),"image/png"));
+    const zip=zipMemory([
+      ["scene.json",bytes(JSON.stringify(scene))],
+      ["images/fill.png",new Uint8Array(await png.arrayBuffer())]
+    ]);
+    if(zip.length>1048576)throw Error("Native request exceeds the 1 MB private upload limit.");
+    nativeStatus("Uploading encrypted-in-transit mask geometry to private gateway…");
+    const sessionResponse=await fetch(NATIVE_GATEWAY+"/v1/sessions",{method:"POST",signal});
+    if(!sessionResponse.ok)throw Error("Private gateway could not open a session (HTTP "+sessionResponse.status+").");
+    const {id,uploadToken,resultToken}=await sessionResponse.json();
+    if(!id||!uploadToken||!resultToken)throw Error("Invalid gateway session.");
+    const upload=await fetch(NATIVE_GATEWAY+"/v1/sessions/"+id+"/input",{
+      method:"PUT",headers:{Authorization:"Bearer "+uploadToken,"Content-Type":"application/zip"},
+      body:zip,signal
+    });
+    if(upload.status!==202)throw Error("Private upload failed (HTTP "+upload.status+").");
+    nativeStatus("Queued for licensed Spine Editor 4.3.26. Waiting for native PNG…");
+    for(let attempt=0;attempt<170;attempt++){
+      await new Promise((resolve,reject)=>{
+        const t=setTimeout(resolve,5000);
+        signal.addEventListener("abort",()=>{clearTimeout(t);reject(Error("Cancelled."))},{once:true});
+      });
+      const r=await fetch(NATIVE_GATEWAY+"/v1/sessions/"+id+"/result",{
+        headers:{Authorization:"Bearer "+resultToken},signal,cache:"no-store"
+      });
+      if(r.status===202)continue;
+      if(!r.ok)throw Error("Native result unavailable (HTTP "+r.status+").");
+      const blob=await r.blob();
+      if(blob.type!=="image/png"||blob.size<50)throw Error("Invalid native PNG.");
+      state.nativeURL=URL.createObjectURL(blob);
+      $("native-image").src=state.nativeURL;
+      $("native-result").hidden=false;
+      nativeStatus("Rendered by licensed Spine Editor 4.3.26.");
+      return;
+    }
+    throw Error("Private session expired before the native Editor returned the image.");
+  }catch(e){
+    if(!signal.aborted)nativeStatus("Native render: "+e.message,true);
+  }finally{
+    if(state.nativeAbort===controller)state.nativeAbort=null;
+    $("native-preview").disabled=!state.result;
+  }
+}
+$("native-preview").addEventListener("click",nativeRender);
+$("native-download").addEventListener("click",()=>{
+  if(!state.nativeURL)return;
+  const a=document.createElement("a");
+  a.href=state.nativeURL;a.download=(state.base||"mask")+"-spine-native.png";
+  document.body.append(a);a.click();a.remove();
+});
+
+status("Drop a Spine JSON and its images, or just one PNG.");
 });
 for (const evt of ["dragenter","dragover"]) document.addEventListener(evt, e => {
   e.preventDefault(); document.body.classList.add("dragging");
