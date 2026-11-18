@@ -3,7 +3,7 @@ import { imageMask, availableRegions, exportJson, maskVertices } from "./core.js
 const $ = id => document.getElementById(id);
 const filesInput = $("files"), targetInput = $("target"), canvas = $("preview");
 const ctx = canvas.getContext("2d", { willReadFrequently: true });
-const state = { images: [], json: null, binary: null, source: null, sourceFile: null, result: null, base: "mask" };
+const state = { images: [], json: null, binary: null, source: null, sourceFile: null, result: null, base: "mask", fillImage: null };
 function status(message, error = false) {
   $("status").textContent = message;
   $("status").dataset.error = error ? "yes" : "no";
@@ -104,31 +104,63 @@ function selectSource(fromPicker = false) {
   }
   clearResult();
 }
-function showPreview(mask) {
-  if (!state.source) return;
-  const w = state.source.width, h = state.source.height;
-  const factor = Math.min(1, 1100 / Math.max(w,h));
-  canvas.width = Math.max(1, Math.round(w * factor));
-  canvas.height = Math.max(1, Math.round(h * factor));
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-  ctx.drawImage(state.source, 0,0,canvas.width,canvas.height);
-  if (!mask) return;
-  const sx = canvas.width / mask.analysisWidth, sy = canvas.height / mask.analysisHeight;
-  ctx.beginPath();
-  mask.points.forEach(([x,y], i) => { if (!i) ctx.moveTo(x * sx, y * sy); else ctx.lineTo(x * sx, y * sy); });
-  ctx.closePath();
-  ctx.fillStyle = "rgba(255, 122, 14, 0.12)";
-  ctx.fill("evenodd");
-  ctx.strokeStyle = "#ff9b28";
-  ctx.lineWidth = Math.max(1.25, canvas.width / 700);
-  ctx.lineJoin = "round";
-  ctx.stroke();
-  if ($("show-points").checked && mask.points.length < 1200) {
-    ctx.fillStyle = "#75e4ff";
-    for (const [x,y] of mask.points) {
-      ctx.fillRect(x*sx-1.25, y*sy-1.25, 2.5,2.5);
-    }
+// The Spine clipping attachment needs a connected polygon, but the visible
+// image must use the ORIGINAL artwork silhouette, never the bridge/slit map.
+// Applying this alpha to the second image makes the routing geometry invisible.
+function visibleAlphaCanvas(mask) {
+  if (!mask?.visibleAlpha || mask.visibleAlpha.length !== mask.analysisWidth*mask.analysisHeight)
+    throw Error("Visible silhouette alpha is unavailable.");
+  const a=document.createElement("canvas");
+  a.width=mask.analysisWidth; a.height=mask.analysisHeight;
+  const context=a.getContext("2d",{willReadFrequently:true});
+  const pixels=context.createImageData(a.width,a.height);
+  for(let i=0;i<mask.visibleAlpha.length;i++){
+    const j=i*4;
+    pixels.data[j]=pixels.data[j+1]=pixels.data[j+2]=255;
+    pixels.data[j+3]=mask.visibleAlpha[i];
   }
+  context.putImageData(pixels,0,0);
+  return a;
+}
+function createMaskedTexture(mask,w,h,secondImage=null){
+  const texture=document.createElement("canvas");
+  texture.width=w;texture.height=h;
+  const paint=texture.getContext("2d",{willReadFrequently:true});
+  if(secondImage) paint.drawImage(secondImage,0,0,w,h);
+  else {
+    const gradient=paint.createLinearGradient(0,0,w,h);
+    gradient.addColorStop(0,"#2192e4");gradient.addColorStop(.5,"#12bdad");
+    gradient.addColorStop(1,"#f39922");
+    paint.fillStyle=gradient;paint.fillRect(0,0,w,h);
+  }
+  const alpha=visibleAlphaCanvas(mask);
+  paint.globalCompositeOperation="destination-in";
+  // Nearest-neighbour keeps transparent background pixels fully transparent
+  // even if a one-pixel gap is located between two letter strokes.
+  paint.imageSmoothingEnabled=false;
+  paint.drawImage(alpha,0,0,w,h);
+  paint.globalCompositeOperation="source-over";
+  return texture;
+}
+function showPreview(mask) {
+  if(!state.source)return;
+  const w=state.source.width,h=state.source.height;
+  const scale=Math.min(1,1100/Math.max(w,h));
+  canvas.width=Math.max(1,Math.round(w*scale));
+  canvas.height=Math.max(1,Math.round(h*scale));
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  if(!mask){ctx.drawImage(state.source,0,0,canvas.width,canvas.height);return;}
+  const texture=createMaskedTexture(mask,canvas.width,canvas.height,state.fillImage||null);
+  ctx.drawImage(texture,0,0);
+  if(!$("show-points").checked)return; // no routing outlines in normal preview
+  const sx=canvas.width/mask.analysisWidth,sy=canvas.height/mask.analysisHeight;
+  ctx.beginPath();
+  mask.points.forEach(([x,y],i)=>i?ctx.lineTo(x*sx,y*sy):ctx.moveTo(x*sx,y*sy));
+  ctx.closePath();
+  ctx.strokeStyle="#ff9b28";ctx.lineWidth=1;ctx.stroke();
+  ctx.fillStyle="#75e4ff";
+  if(mask.points.length<1200)for(const [x,y] of mask.points)
+    ctx.fillRect(x*sx-1,y*sy-1,2,2);
 }
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob), a = document.createElement("a");
@@ -208,6 +240,8 @@ $("reset").addEventListener("click", () => {
   targetInput.replaceChildren(); $("target-row").hidden = true;
   $("image-source").replaceChildren(); $("image-row").hidden = true;
   $("source-name").textContent = "No image supplied";
+  state.fillImage?.close?.(); state.fillImage=null;
+  $("native-fill").value="";
   ctx.clearRect(0, 0, canvas.width, canvas.height); clearResult();
   
 status("Drop a Spine JSON and its images, or just one PNG.");
@@ -283,16 +317,11 @@ async function nativeRender(){
       }}],
       animations:{"mask-preview":{bones:{root:{translate:[{time:0,x:0,y:0},{time:.1,x:0,y:0}]}}}}
     };
-    const c=document.createElement("canvas");c.width=w;c.height=h;
-    const x=c.getContext("2d");
     const secondary=$("native-fill").files?.[0];
-    if(secondary){
-      const img=await decode(secondary);x.drawImage(img,0,0,w,h);img.close?.();
-    }else{
-      const g=x.createLinearGradient(0,0,w,h);
-      g.addColorStop(0,"#2192e4");g.addColorStop(.5,"#12bdad");g.addColorStop(1,"#f39922");
-      x.fillStyle=g;x.fillRect(0,0,w,h);
-    }
+    let sourceFill=state.fillImage;
+    if(secondary&&!sourceFill)sourceFill=await decode(secondary);
+    const c=createMaskedTexture(mask,w,h,sourceFill);
+    if(sourceFill!==state.fillImage)sourceFill?.close?.();
     const png=await new Promise((resolve,reject)=>c.toBlob(b=>b?resolve(b):reject(Error("Could not encode replacement image.")),"image/png"));
     const zip=zipMemory([
       ["scene.json",bytes(JSON.stringify(scene))],
@@ -336,6 +365,14 @@ async function nativeRender(){
     $("native-preview").disabled=!state.result;
   }
 }
+$("native-fill").addEventListener("change",async()=>{
+  try {
+    state.fillImage?.close?.();state.fillImage=null;
+    const file=$("native-fill").files?.[0];
+    if(file)state.fillImage=await decode(file);
+    if(state.result)showPreview(state.result.mask);
+  }catch(e){nativeStatus("Unable to read second image: "+e.message,true);}
+});
 $("native-preview").addEventListener("click",nativeRender);
 $("native-download").addEventListener("click",()=>{
   if(!state.nativeURL)return;
