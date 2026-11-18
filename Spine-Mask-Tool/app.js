@@ -209,13 +209,17 @@ async function generate() {
     $("download-spine-zip").disabled = false;
     $("download-png").hidden = !!state.json;
     const s = mask.stats;
-    $("summary").textContent = "ONE CLIPPING MASK · " + s.vertices + " vertices · " +
+    $("summary").textContent = "ONE CLIPPING MASK · " + s.vertices + "/" + s.mobileVertexBudget +
+      " vertices · " + s.concurrentSkeletons + " mobile skeletons: " +
+      s.totalSceneClippingVertices + " total · " +
       (s.highlightApplied ? "Light faces only" : "Full silhouette") + " · Invisible connectors";
     const profile = s.highlightRequested
       ? (s.highlightApplied ? "Automatic light-face edges; dark shadows excluded."
          : "Light-edge mode used standard silhouette fallback (" + s.highlightReason + ").")
       : "Full silhouette edge mode.";
-    status(profile + (s.vertices>700 ? " High vertex count may impact Spine." : " JSON and ZIP are ready."));
+    status(profile + " Mobile geometry: " + s.vertices +
+      " vertices; dark coverage " + s.darkLeakPercent + "%; lost light " +
+      s.missingLightPercent + "%. JSON and ZIP are ready.");
   } catch (e) {
     state.result = null;
     $("download-json").disabled = true;
@@ -242,7 +246,13 @@ Object.defineProperty(window,"SpineMaskAgentControl",{
     generate:()=>generate(),
     getStatus:()=>({ready:!!state.result,mode:$("highlight-edges").checked?"light-faces":"silhouette",
       result:state.result?{vertices:state.result.mask.stats.vertices,
-        highlightApplied:state.result.mask.stats.highlightApplied}:null})
+        highlightApplied:state.result.mask.stats.highlightApplied,
+        mobileQualityPassed:state.result.mask.stats.mobileQualityPassed,
+        mobileVertexBudget:state.result.mask.stats.mobileVertexBudget,
+        concurrentSkeletons:state.result.mask.stats.concurrentSkeletons,
+        totalSceneClippingVertices:state.result.mask.stats.totalSceneClippingVertices,
+        darkLeakPercent:state.result.mask.stats.darkLeakPercent,
+        missingLightPercent:state.result.mask.stats.missingLightPercent}:null})
   }),
   writable:false,configurable:false
 });
