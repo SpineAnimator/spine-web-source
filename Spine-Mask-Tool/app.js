@@ -672,4 +672,4 @@ window.addEventListener("message",event=>{
 });
 setTimeout(()=>void connectEditor(true),500);
 
-status("Drop a Spine JSON and its images, or just one PNG.");
+status("Open a Spine project ZIP, folder or JSON + images. For live .spine use Import from Spine Editor.");
