@@ -25,6 +25,17 @@ h1 { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-
 .fields { grid-area:fields; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; min-width:0; }
 .field-overview { display:flex; justify-content:space-between; align-items:center; gap:8px; min-width:0; min-height:62px; padding:0 12px; background:var(--panel); border:1px solid var(--border); color:var(--muted); font-size:13px; }
 .field-overview strong { font-weight:500; color:#bdbdbd; text-align:right; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.field-action { cursor:pointer; text-align:left; transition:border-color .16s,background .16s; }
+.field-action:hover:not(:disabled) { border-color:#6b6b6b; background:#101010; }
+.field-action:active { background:#181818; }
+.field-action strong { color:#f2f2f2; }
+.install-button { display:flex; align-items:center; justify-content:center; min-height:44px; padding:9px 14px; flex:1 1 auto; background:#f2f2f2; color:#000; text-align:center; text-decoration:none; border:1px solid #f2f2f2; font-size:13px; font-weight:500; }
+.install-button:hover { background:white; color:#000; }
+.bridge-actions button { flex:1 1 auto; }
+.helper ol { margin:10px 0 0; padding-left:20px; }
+.helper li { margin:8px 0; }
+.helper code { overflow-wrap:anywhere; }
+#bridge-setup:not([open]) { opacity:.94; }
 .panels { grid-area:panels; display:grid; grid-template-columns:minmax(0,2fr) minmax(280px,1fr); gap:16px; min-height:0; }
 .preview-panel,.control-panel { min-width:0; min-height:0; background:var(--panel); border:1px solid var(--border); }
 .preview-panel { display:flex; flex-direction:column; gap:12px; padding:16px; border:2px dashed #444; background:rgba(0,0,0,.5); }
@@ -114,18 +125,20 @@ footer { min-height:32px; padding:4px 32px 10px; color:var(--muted); font-size:1
       <label class="chip"><input id="show-points" type="checkbox" aria-label="Show mask vertices"><span>Vertices</span></label>
     </div>
   </header>
-  <div class="fields" aria-label="Project settings">
-    <div class="field-overview"><span>Input</span><strong>Spine / Images</strong></div>
-    <div class="field-overview"><span>Detection</span><strong>Automatic</strong></div>
-    <div class="field-overview"><span>Output</span><strong>Spine 4.3</strong></div>
+  <div class="fields" aria-label="Import Spine project">
+    <button class="field-overview field-action" id="open-project" type="button"><span>Project</span><strong>Open Spine / ZIP</strong></button>
+    <button class="field-overview field-action" id="open-folder" type="button"><span>Images</span><strong>Open project folder</strong></button>
+    <button class="field-overview field-action" id="open-editor" type="button"><span>Editor</span><strong>Import from Spine</strong></button>
+    <input type="file" id="project-files" accept=".spine,.skel,.json,.zip,.atlas,.png,.webp,.jpg,.jpeg" multiple hidden aria-label="Choose Spine project and images">
+    <input type="file" id="project-folder" webkitdirectory directory multiple hidden aria-label="Choose Spine project folder">
   </div>
   <div class="panels">
     <section class="preview-panel" aria-label="Source and mask preview">
-      <div class="preview-head"><span>.json .spine .png .webp .jpg</span></div>
+      <div class="preview-head"><span>.spine .json .skel .zip .atlas .png .webp .jpg</span></div>
       <label class="file-zone">
         <strong>Drop files or browse</strong>
-        <small>Spine JSON + region images · or one PNG / WebP / JPG</small>
-        <input id="files" type="file" accept=".json,.spine,.png,.webp,.jpg,.jpeg,image/*" multiple aria-label="Choose skeleton and images">
+        <small>Spine project ZIP / JSON + images, or a single image</small>
+        <input id="files" type="file" accept=".json,.spine,.skel,.zip,.atlas,.png,.webp,.jpg,.jpeg,image/*" multiple aria-label="Choose skeleton and images">
       </label>
       <div class="stage"><canvas id="preview" width="600" height="400" aria-label="Source image and generated mask outline"></canvas></div>
       <div class="preview-meta">
@@ -144,10 +157,22 @@ footer { min-height:32px; padding:4px 32px 10px; color:var(--muted); font-size:1
         <select id="image-source" aria-label="Choose exact texture to trace"></select>
       </div>
       <div id="local-bridge" class="setting" aria-label="Local Spine Editor connection">
-        <h2>Local Spine Editor</h2>
-        <p id="bridge-status" class="status" role="status" aria-live="polite">Checking Chrome bridge…</p>
-        <div class="row"><button id="bridge-refresh" type="button">Reconnect editor</button></div>
-        <details class="helper"><summary>Chrome Bridge</summary><p>The Spine Resize Chrome Bridge imports the open project and returns the masked result as a new project. The original remains untouched. Source images stay local. <a href="https://github.com/SpineAnimator/Spine-Resize/releases/tag/spine-mask-bridge-v1" target="_blank" rel="noopener noreferrer">Extension</a></p></details>
+        <h2>Spine Editor Bridge</h2>
+        <p id="bridge-status" class="status" role="status" aria-live="polite">Checking bridge…</p>
+        <div class="row bridge-actions">
+          <button id="bridge-refresh" type="button">Import open Spine project</button>
+          <a class="install-button" id="bridge-install" href="https://github.com/SpineAnimator/Spine-Resize/releases/download/spine-mask-bridge-v1/Spine-Mask-Resize-Bridge.zip" target="_blank" rel="noopener noreferrer" download>Install Bridge</a>
+        </div>
+        <details class="helper" id="bridge-setup">
+          <summary>Bridge setup · Chrome + native host</summary>
+          <ol>
+            <li>Download and unpack <strong>Spine Mask + Resize Bridge</strong>.</li>
+            <li>Chrome → Extensions → Developer mode → <strong>Load unpacked</strong>. Choose the extracted extension folder.</li>
+            <li>On macOS, run <code>python3 install_spinemask_host.py</code> from that folder to register the restricted native host. This step must come <strong>after</strong> installing the extension. Windows needs a packaged native host executable and is not supported by the current ZIP.</li>
+            <li>Restart Chrome, open a project in Spine 4.3.26 and click <strong>Import open Spine project</strong>.</li>
+          </ol>
+          <p>Only the exact Spine Mask Tool page can communicate with the host. The original project remains untouched. <a href="https://github.com/SpineAnimator/Spine-Resize/blob/main/spine-bridge/install_spinemask_host.py" target="_blank" rel="noopener noreferrer">Installer source</a></p>
+        </details>
       </div>
       <div class="native-settings">
         <h2>Native render</h2>
