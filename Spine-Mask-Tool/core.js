@@ -284,7 +284,7 @@ function optimizeMobilePolygon(base,visibleAlpha,holeSeeds,rgba,w,h,limit,darkWe
 function evaluateMobileMask(polygon,baseline,visibleAlpha,holeSeeds,rgba,w,h,budget){
   if(polygon.length>budget||polygon.length<3||intersects(polygon)||
      holeSeeds.some(t=>pointInPolygon(t%w+.5,Math.floor(t/w)+.5,polygon)))return null;
-  const pixels=contourPixels(polygon);
+  const pixels=contourPixels(polygon,w,h);
   let darkTotal=0,dark=0,missing=0,extra=0,drift=0,lightTotal=0;
   for(let i=0;i<w*h;i++){
     const p=i*4,opaque=rgba[p+3]>20,highlight=visibleAlpha[i]>0;
