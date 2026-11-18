@@ -17,6 +17,13 @@ export function imageMask(image, options = {}) {
     mask[i] = transparent ? (d[p + 3] >= alpha ? 1 : 0) :
       (((d[p] - bg[0]) ** 2 + (d[p + 1] - bg[1]) ** 2 + (d[p + 2] - bg[2]) ** 2) > sq ? 1 : 0);
   }
+  // AI-agent mode: infer bright face material from the image itself.
+  // No slider threshold is required; 3-class histogram segmentation separates
+  // the dark extrusion, mid-tones and highlights from actual image pixels.
+  const highlightRequested = options.highlightFaces === true;
+  let highlight = { applied: false, reason: "disabled", weights: null, cutoff: 0 };
+  if (highlightRequested) highlight = findLightFaces(d, mask, total);
+  if (highlight.applied) mask.set(highlight.binary);
   let comps = regions(mask, w, h, 1);
   let removed = 0;
   for (const comp of comps) if (comp.pixels.length < minArea) {
@@ -31,7 +38,8 @@ export function imageMask(image, options = {}) {
   const visibleAlpha = new Uint8ClampedArray(total);
   for (let i = 0; i < total; i++) {
     if (!visibleMask[i]) continue;
-    visibleAlpha[i] = transparent ? d[i * 4 + 3] : 255;
+    const baseAlpha = transparent ? d[i * 4 + 3] : 255;
+    visibleAlpha[i] = highlight.applied ? Math.round(baseAlpha * highlight.weights[i] / 255) : baseAlpha;
   }
   if (!comps.length) throw Error("No opaque artwork found. Adjust alpha/background threshold.");
   if (comps.length > 150) throw Error("Too many disconnected shapes (over 150). Increase minimum area.");
@@ -109,8 +117,62 @@ export function imageMask(image, options = {}) {
   return {
     points: polygon, analysisWidth: w, analysisHeight: h, binary: mask,
     visibleMask, visibleAlpha,
-    stats: { vertices: polygon.length, shapes: comps.length, bridges, slits, filledPinholes, ignored: removed, transparent }
+    stats: { vertices: polygon.length, shapes: comps.length, bridges, slits, filledPinholes, ignored: removed, transparent,
+      highlightRequested, highlightApplied: highlight.applied, highlightReason: highlight.reason, highlightCutoff: highlight.cutoff }
   };
+}
+// Histogram-driven segmentation; all image processing takes place in browser
+// memory. This function does not upload or retain source pixels.
+function findLightFaces(rgba, foreground, count) {
+  const hist = new Uint32Array(256);
+  const strength = new Uint8Array(count);
+  let used = 0;
+  for (let i = 0; i < count; i++) {
+    if (!foreground[i]) continue;
+    const p = i*4, r=rgba[p], g=rgba[p+1], b=rgba[p+2];
+    const luminance=0.2126*r + 0.7152*g + 0.0722*b;
+    // Green-channel contribution distinguishes illuminated gold faces from
+    // red-brown extrusion while remaining compatible with grayscale lettering.
+    const value = Math.min(255, Math.max(0, Math.round(0.62*luminance+0.38*g)));
+    strength[i] = value; hist[value]++; used++;
+  }
+  if (used < 32) return {applied:false, reason:"insufficient_foreground"};
+  let low=0, high=255;
+  while (low<255&&!hist[low])low++;
+  while (high>0&&!hist[high])high--;
+  if (high-low<28) return {applied:false, reason:"uniform_light"};
+  const weight=new Float64Array(256), sum=new Float64Array(256);
+  let w=0, s=0;
+  for(let i=0;i<256;i++){w+=hist[i];s+=hist[i]*i;weight[i]=w;sum[i]=s;}
+  // Optimal three-class thresholds, a parameter-free multi-Otsu partition.
+  let best=-Infinity, tDark=low, tLight=high;
+  for(let a=low+3;a<high-7;a++){
+    const wa=weight[a];if(wa<used*.015)continue;
+    const sa=sum[a];
+    for(let b=a+5;b<high-2;b++){
+      const wb=weight[b]-wa,wc=used-weight[b];
+      if(wb<used*.025 || wc<used*.025)continue;
+      const sb=sum[b]-sa,sc=s-sum[b];
+      const score=(sa*sa/wa)+(sb*sb/wb)+(sc*sc/wc);
+      if(score>best){best=score;tDark=a;tLight=b;}
+    }
+  }
+  if(!Number.isFinite(best))return {applied:false,reason:"low_contrast"};
+  const cutoff=Math.max(0,Math.min(254,Math.round(tDark+(tLight-tDark)*.10)));
+  const binary=new Uint8Array(count),weights=new Uint8Array(count);
+  let selected=0;
+  for(let i=0;i<count;i++){
+    if(!foreground[i])continue;
+    const v=strength[i];
+    if(v<=cutoff)continue;
+    binary[i]=1;selected++;
+    // 4-unit soft boundary reduces jagged edge flicker without admitting
+    // dark-shadow regions or allowing any alpha on routing bridges.
+    weights[i]=Math.min(255,Math.round(255*(v-cutoff)/5));
+  }
+  if(selected<Math.max(24,used*.12))return {applied:false,reason:"low_highlight_coverage"};
+  if(selected>used*.985)return {applied:false,reason:"already_bright"};
+  return {applied:true,reason:"auto_three_class",binary,weights,cutoff};
 }
 function samples(a, max) {
   if (a.length <= max) return a;
