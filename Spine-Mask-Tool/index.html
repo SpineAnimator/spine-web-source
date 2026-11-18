@@ -23,7 +23,9 @@ h2{font-size:14px;letter-spacing:.08em;text-transform:uppercase;margin:0 0 16px;
 .file-zone strong{display:block;font-size:17px;margin-bottom:6px}.file-zone small{display:block;color:var(--muted);line-height:1.5}
 label.field{display:block;color:var(--muted);font-size:12px;font-weight:650;margin:18px 0 7px}
 select,input[type=number]{background:var(--input);color:var(--text);width:100%;padding:12px 13px;border:1px solid var(--border);border-radius:10px;font:inherit;font-size:13px}
-input[type=range]{width:100%;accent-color:var(--gold);margin:9px 0}
+.agent-mode{display:flex;align-items:flex-start;gap:12px;padding:14px;border:1px solid #70613e;border-radius:12px;background:#20201b;cursor:pointer}
+.agent-mode input{accent-color:var(--gold);width:18px;height:18px;margin:2px 0;flex-shrink:0}
+.agent-mode strong{font-size:14px;display:block}.agent-mode small{font-size:12px;color:var(--muted);display:block;line-height:1.5;margin-top:4px}
 .setting{margin-top:16px}.setting label{font-size:12px;color:var(--muted);display:flex;align-items:center;justify-content:space-between}
 .small-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:0 16px}
 .tip{font-size:12px;color:var(--muted);line-height:1.6;margin-top:18px}
@@ -53,7 +55,7 @@ a{color:var(--gold)}[hidden]{display:none!important}
 <main>
   <section class="intro">
     <h1>One image. One mask.</h1>
-    <p class="sub">Trace every letter and inner opening as a single continuous clipping polygon. Import a Spine JSON + selected region image, or start from a PNG.</p>
+    <p class="sub">One Spine mask, automatic light-face extraction and invisible connections. Import a Spine JSON + chosen image, or start from PNG.</p>
   </section>
   <section class="panel" aria-label="Source and settings">
     <h2>01 / Input</h2>
@@ -70,15 +72,13 @@ a{color:var(--gold)}[hidden]{display:none!important}
       <label class="field" for="image-source">Exact source image · PNG / WebP / JPG</label>
       <select id="image-source" aria-label="Choose exact texture to trace"></select>
     </div>
-    <h2 style="margin-top:25px">02 / Contour</h2>
-    <div class="small-grid">
-      <div class="setting"><label for="alpha">Alpha threshold <span id="av">24</span></label><input id="alpha" type="range" min="1" max="220" value="24"></div>
-      <div class="setting"><label for="bridge">Bridge width <span id="bv">1</span></label><input id="bridge" type="range" min="1" max="5" step="1" value="1"></div>
-      <div class="setting"><label for="smooth">Smooth <span id="sv">0.55</span></label><input id="smooth" type="range" min="0" max="3" step=".05" value=".55"></div>
-      <div class="setting"><label for="area">Min area <span id="mv">3</span></label><input id="area" type="range" min="1" max="25" value="3"></div>
-      <div class="setting"><label for="tolerance">Background threshold <span id="tv">48</span></label><input id="tolerance" type="range" min="1" max="120" value="48"></div>
-    </div>
-    <p class="tip">Transparent images use alpha. Opaque images use corner background colors. The tool joins separate islands and cuts narrow passages to enclosed holes.</p>
+    <h2 style="margin-top:25px">02 / Automatic detection</h2>
+    <label for="highlight-edges" class="agent-mode">
+      <input id="highlight-edges" type="checkbox" checked data-agent-control="highlight-edges"
+        aria-label="Use light-text edge and ignore dark shadows">
+      <span><strong>Light text edges</strong><small>Ignore black, brown shadows and dark extrusion · Agent controllable</small></span>
+    </label>
+    <p class="tip">Automatic highlight detection, geometry, one clipping mask and invisible routing. No manual thresholds or sliders.</p>
     <div class="row"><button class="primary" id="generate">Generate mask</button><button id="reset">Reset</button></div>
     <div id="status" class="status" role="status" aria-live="polite"></div>
   </section>
@@ -110,11 +110,6 @@ a{color:var(--gold)}[hidden]{display:none!important}
 </main>
 <footer>Browser-only processing · No image uploads · <a href="https://esotericsoftware.com/spine-clipping" rel="noopener" target="_blank">Spine clipping documentation</a></footer>
 <script type="module" src="./app.js"></script>
-<script>
-for(const [control,label] of [["alpha","av"],["bridge","bv"],["smooth","sv"],["area","mv"],["tolerance","tv"]]){
- const a=document.getElementById(control),b=document.getElementById(label);
- a.addEventListener("input",()=>{b.textContent=a.value});
-}
-</script>
+
 </body>
 </html>
