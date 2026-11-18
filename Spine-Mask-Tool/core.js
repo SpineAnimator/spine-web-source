@@ -113,13 +113,75 @@ export function imageMask(image, options = {}) {
     polygon = candidate;
     break;
   }
-  if (!polygon) throw Error("No simple, valid single-contour polygon could be formed. Try a larger bridge or reduce detail.");
+  if (!polygon) throw Error("No simple, valid single-contour polygon could be formed.");
+  const optimized = reduceContourVertices(raw, polygon, visibleAlpha, holeSeeds, d, w, h, desiredEpsilon);
+  polygon = optimized.points;
   return {
     points: polygon, analysisWidth: w, analysisHeight: h, binary: mask,
     visibleMask, visibleAlpha,
-    stats: { vertices: polygon.length, shapes: comps.length, bridges, slits, filledPinholes, ignored: removed, transparent,
+    stats: { vertices: polygon.length, verticesBeforeOptimization: optimized.before,
+      vertexReductionPercent: Math.round(100 * (1 - polygon.length / optimized.before)),
+      contourDriftPixels: optimized.drift, optimizationAccepted: optimized.accepted,
+      shapes: comps.length, bridges, slits, filledPinholes, ignored: removed, transparent,
       highlightRequested, highlightApplied: highlight.applied, highlightReason: highlight.reason, highlightCutoff: highlight.cutoff }
   };
+}
+// Deterministically halve excessive polygon detail if the actual selected
+// letter faces and counter openings remain topologically and visually stable.
+// Unlike a manual simplify slider, this chooses the minimum safe epsilon.
+function contourPixels(points,w,h) {
+  const out=new Uint8Array(w*h);
+  for(let y=0;y<h;y++){
+    const yy=y+0.5,xs=[];
+    for(let i=0,j=points.length-1;i<points.length;j=i++){
+      const a=points[i],b=points[j];
+      if((a[1]>yy)===(b[1]>yy))continue;
+      xs.push(a[0]+(yy-a[1])*(b[0]-a[0])/(b[1]-a[1]));
+    }
+    xs.sort((a,b)=>a-b);
+    for(let i=0;i+1<xs.length;i+=2){
+      const left=Math.max(0,Math.ceil(xs[i]-0.5));
+      const right=Math.min(w-1,Math.floor(xs[i+1]-0.5));
+      if(right>=left)out.fill(1,y*w+left,y*w+right+1);
+    }
+  }
+  return out;
+}
+function reduceContourVertices(raw,base,alpha,holeSeeds,rgba,w,h,epsilon){
+  const goal=Math.floor(base.length/2),before=base.length;
+  if(before<48)return {points:base,before,drift:0,accepted:false};
+  const original=contourPixels(base,w,h);
+  const count=alpha.reduce((n,v)=>n+(v>0),0);
+  let originalDark=0;
+  for(let i=0;i<w*h;i++){
+    if(!original[i]||rgba[i*4+3]<20)continue;
+    const p=i*4;
+    if(.2126*rgba[p]+.7152*rgba[p+1]+.0722*rgba[p+2]<50)originalDark++;
+  }
+  const maxDrift=Math.ceil(w*h*.016);
+  const maxMissing=Math.ceil(count*.02);
+  const maxDark=originalDark+Math.max(4,Math.ceil(originalDark*.12));
+  // Search from the smallest modification to the larger ones. Selection is
+  // automatic and fail-closed; no visual accuracy is sacrificed for 2x alone.
+  for(const scale of [1.4,1.5,1.55,1.6,1.65,1.7,1.72,1.75,1.8,1.9,2,2.2,2.4,2.7,3]){
+    const candidate=simplifyRing(raw,epsilon*scale);
+    if(candidate.length<3||candidate.length>goal||intersects(candidate))continue;
+    if(holeSeeds.some(p=>pointInPolygon(p%w+.5,Math.floor(p/w)+.5,candidate)))continue;
+    const pixels=contourPixels(candidate,w,h);
+    let drift=0,missing=0,dark=0;
+    for(let i=0;i<w*h;i++){
+      if(pixels[i]!==original[i])drift++;
+      if(alpha[i]>0&&!pixels[i])missing++;
+      if(pixels[i]&&rgba[i*4+3]>=20){
+        const p=i*4;
+        if(.2126*rgba[p]+.7152*rgba[p+1]+.0722*rgba[p+2]<50)dark++;
+      }
+      if(drift>maxDrift||missing>maxMissing||dark>maxDark)break;
+    }
+    if(drift<=maxDrift&&missing<=maxMissing&&dark<=maxDark)
+      return {points:candidate,before,drift,accepted:true};
+  }
+  return {points:base,before,drift:0,accepted:false};
 }
 // Histogram-driven segmentation; all image processing takes place in browser
 // memory. This function does not upload or retain source pixels.
