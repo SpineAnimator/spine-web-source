@@ -550,27 +550,22 @@ async function writeToEditor(epoch){
     const sw=source.width,sh=source.height;
     const points=mask.points.map(([x,y])=>[x*sw/mask.analysisWidth,y*sh/mask.analysisHeight]);
     const merged=exportLocalEditorMask(state.json,selection,points,sw,sh);
-    // Preserve original skeleton and original image. Only the new overlay
-    // carries bright-face alpha; invisible bridge pixels cannot be seen.
-    const output=createMaskedTexture(mask,sw,sh,state.fillImage||null);
-    const png=await new Promise((resolve,reject)=>output.toBlob(b=>b?resolve(b):reject(Error("PNG encoding failed")),"image/png"));
+    // Send only the modified Spine JSON. The original region and its PNG
+    // remain untouched. One clipping attachment clips the selected target.
     const encoded=new TextEncoder().encode(JSON.stringify(merged.json));
-    const texture=new Uint8Array(await png.arrayBuffer());
     if(epoch!==bridgeWriteEpoch||session!==state.bridge?.session)return;
-    bridgeStatus("Saving new Spine project with one clipping mask…");
-    const started=await requestBridge("begin_result",{session,files:[
-      {name:"mask.json",size:encoded.length},
-      {name:"mask-overlay.png",size:texture.length}]},25000);
+    bridgeStatus("Saving new Spine project with one native clipping mask…");
+    const started=await requestBridge("begin_result",{session,
+      files:[{name:"mask.json",size:encoded.length}]},25000);
     if(!started?.stage)throw Error("Native output transaction rejected.");
     await writeBytesToHost(started.stage,"mask.json",encoded);
-    await writeBytesToHost(started.stage,"mask-overlay.png",texture);
     const saved=await requestBridge("commit_result",{session,stage:started.stage,openEditor:true},210000);
     if(saved?.imported&&saved?.opened)
       bridgeStatus("Mask applied · "+saved.project+" opened in local Spine Editor.");
     else if(saved?.imported)
       bridgeStatus("New .spine project saved; automatic editor opening was unavailable.",true);
     else if(saved?.saved)
-      bridgeStatus("New Spine JSON and PNG saved. Native editor import was unavailable.",true);
+      bridgeStatus("New Spine JSON saved. Native editor import was unavailable.",true);
     else throw Error("Spine editor did not confirm output.");
   }catch(error){bridgeStatus("Local Spine export: "+error.message,true);}
   finally{
