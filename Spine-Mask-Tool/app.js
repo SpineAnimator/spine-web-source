@@ -1,9 +1,9 @@
-import { imageMask, availableRegions, exportJson, maskVertices } from "./core.js";
+import { imageMask, availableRegions, exportJson, exportLocalEditorMask, maskVertices } from "./core.js";
 
 const $ = id => document.getElementById(id);
 const filesInput = $("files"), targetInput = $("target"), canvas = $("preview");
 const ctx = canvas.getContext("2d", { willReadFrequently: true });
-const state = { images: [], json: null, binary: null, source: null, sourceFile: null, result: null, base: "mask", fillImage: null };
+const state = { images: [], json: null, binary: null, source: null, sourceFile: null, result: null, base: "mask", fillImage: null, bridge: null };
 function status(message, error = false) {
   $("status").textContent = message;
   $("status").dataset.error = error ? "yes" : "no";
@@ -51,7 +51,8 @@ async function decode(file) {
     img.src = url;
   });
 }
-async function addFiles(fileList) {
+async function addFiles(fileList, fromBridge = false) {
+  if (!fromBridge) state.bridge = null;
   clearResult();
   const files = Array.from(fileList || []);
   try {
@@ -199,6 +200,7 @@ async function generate() {
     const points = mask.points.map(([x,y]) => [x / aw * originalW, y / ah * originalH]);
     const output = exportJson(state.json, selected, points, originalW, originalH);
     state.result = { mask, json: output.json, slot: output.slot, imageOnly: !state.json };
+    if(state.bridge && state.json && selectedRegion()) queueBridgeWrite();
     showPreview(mask);
     $("download-json").disabled = false;
     $("native-preview").disabled = false;
@@ -258,6 +260,7 @@ $("download-png").addEventListener("click", async () => {
 });
 $("reset").addEventListener("click", () => {
   state.images = []; state.json = null; state.binary = null; state.source = null;
+  state.bridge = null;
   state.sourceFile = null; state.choices = []; filesInput.value = "";
   targetInput.replaceChildren(); $("target-row").hidden = true;
   $("image-source").replaceChildren(); $("image-row").hidden = true;
@@ -424,5 +427,161 @@ $("native-download").addEventListener("click",()=>{
   document.body.append(a);a.click();a.remove();
 });
 
+
+
+// Chrome extension Native Messaging bridge. Content-script messages run inside
+// the browser's isolated world: postMessage is the only page transport. This
+// never sends NDA images to GitHub, Cloudflare, or any other network service.
+const BRIDGE_CHANNEL="spine-mask-native-v1";
+const bridgePending=new Map();
+let bridgeWriteEpoch=0, bridgeWriterBusy=false, bridgeLastRendered=0;
+const requestBridge=(method,params={},deadline=25000)=>new Promise((resolve,reject)=>{
+  const id="mask_"+crypto.randomUUID().replaceAll("-","");
+  const timer=setTimeout(()=>{
+    bridgePending.delete(id);reject(new Error("Chrome Native Messaging bridge unavailable"));
+  },deadline);
+  bridgePending.set(id,{resolve,reject,timer});
+  window.postMessage({channel:BRIDGE_CHANNEL,type:"request",id,method,params},location.origin);
+});
+window.addEventListener("message",event=>{
+  if(event.source!==window||event.origin!==location.origin)return;
+  const m=event.data;
+  if(!m||m.channel!==BRIDGE_CHANNEL||m.type!=="response"||!bridgePending.has(m.id))return;
+  const pending=bridgePending.get(m.id);
+  clearTimeout(pending.timer);bridgePending.delete(m.id);
+  if(m.ok===true)pending.resolve(m.result);
+  else pending.reject(new Error(String(m.error||"Native bridge unavailable")));
+});
+function bridgeStatus(message,error=false){
+  const element=$("bridge-status");
+  if(!element)return;
+  element.textContent=message;element.dataset.error=error?"yes":"no";
+}
+function decode64(s){
+  const raw=atob(s),out=new Uint8Array(raw.length);
+  for(let i=0;i<raw.length;i++)out[i]=raw.charCodeAt(i);
+  return out;
+}
+function encode64(part){
+  let output="";
+  for(let i=0;i<part.length;i+=8192)
+    output+=String.fromCharCode(...part.subarray(i,i+8192));
+  return btoa(output);
+}
+function imageFileMime(name){
+  if(/\.png$/i.test(name))return "image/png";
+  if(/\.jpe?g$/i.test(name))return "image/jpeg";
+  if(/\.webp$/i.test(name))return "image/webp";
+  return "application/json";
+}
+async function readBridgeFile(session,item){
+  const parts=[],max=32*1024*1024;
+  if(!Number.isInteger(item.size)||item.size<0||item.size>max)
+    throw Error("Source image or skeleton too large for local bridge.");
+  let received=0;
+  while(received<item.size){
+    const packet=await requestBridge("read_chunk",{session,key:item.key,offset:received},25000);
+    if(!packet||packet.offset!==received||packet.total!==item.size)
+      throw Error("Local Spine project changed during read.");
+    const segment=decode64(packet.base64||"");
+    if(segment.length===0||received+segment.length>item.size)
+      throw Error("Invalid native project chunk.");
+    parts.push(segment);received+=segment.length;
+  }
+  return new File(parts,item.name,{type:imageFileMime(item.name)});
+}
+async function connectEditor(auto=false){
+  if(connectEditor.busy)return;
+  connectEditor.busy=true;
+  bridgeStatus("Connecting to locally installed Spine Editor…");
+  try{
+    const ping=await requestBridge("ping",{},auto?3200:12000);
+    if(ping?.protocol!=="spinemask/1")throw Error("Outdated Chrome native bridge.");
+    const opened=await requestBridge("open_project",{},210000);
+    if(!opened?.open){
+      bridgeStatus("Chrome bridge connected · no unambiguous open Spine project ("+
+        (opened?.reason||"not detected")+")");
+      return;
+    }
+    const selected=opened.files||[];
+    if(!Array.isArray(selected)||!selected.length||selected.length>80)
+      throw Error("Invalid project file manifest from native Spine bridge.");
+    // Always import skeleton first; images follow. No project bytes are sent
+    // to a server, and Native Messaging never allows arbitrary disk paths.
+    const ordered=[...selected].sort((a,b)=>(a.key==="skeleton.json"?-1:0)-(b.key==="skeleton.json"?-1:0));
+    const files=[];
+    for(const item of ordered)files.push(await readBridgeFile(opened.session,item));
+    $("reset").click();
+    state.bridge={session:opened.session,source:opened.source,importedAt:Date.now()};
+    bridgeStatus("Linked to "+opened.source+" · loading project and tracing mask…");
+    await addFiles(files,true);
+    if(!state.source||!state.result)
+      bridgeStatus("Project loaded; select an exact image attachment to complete the mask.",true);
+  }catch(error){
+    if(!auto)bridgeStatus("Local editor: "+error.message,true);
+    else bridgeStatus("Chrome Native Messaging bridge not connected. Upload files normally.");
+  }finally{connectEditor.busy=false;}
+}
+function queueBridgeWrite(){
+  const epoch=++bridgeWriteEpoch;
+  setTimeout(()=>{
+    if(epoch!==bridgeWriteEpoch||bridgeWriterBusy||!state.bridge||!state.result)return;
+    void writeToEditor(epoch);
+  },350);
+}
+async function writeBytesToHost(stage,name,bytes){
+  const total=bytes.length,chunkSize=48*1024;
+  for(let offset=0;offset<total;offset+=chunkSize){
+    const block=bytes.subarray(offset,Math.min(offset+chunkSize,total));
+    const result=await requestBridge("write_chunk",{stage,name,offset,base64:encode64(block)},25000);
+    if(result?.written!==offset+block.length)
+      throw Error("Spine Native Messaging write verification failed.");
+  }
+}
+async function writeToEditor(epoch){
+  if(bridgeWriterBusy||!state.bridge||!state.result||!state.json)return;
+  bridgeWriterBusy=true;
+  const {session}=state.bridge;
+  try {
+    const source=state.source,mask=state.result.mask,selection=selectedRegion();
+    if(!selection)throw Error("Select a valid region before native export.");
+    const sw=source.width,sh=source.height;
+    const points=mask.points.map(([x,y])=>[x*sw/mask.analysisWidth,y*sh/mask.analysisHeight]);
+    const merged=exportLocalEditorMask(state.json,selection,points,sw,sh);
+    // Preserve original skeleton and original image. Only the new overlay
+    // carries bright-face alpha; invisible bridge pixels cannot be seen.
+    const output=createMaskedTexture(mask,sw,sh,state.fillImage||null);
+    const png=await new Promise((resolve,reject)=>output.toBlob(b=>b?resolve(b):reject(Error("PNG encoding failed")),"image/png"));
+    const encoded=new TextEncoder().encode(JSON.stringify(merged.json));
+    const texture=new Uint8Array(await png.arrayBuffer());
+    if(epoch!==bridgeWriteEpoch||session!==state.bridge?.session)return;
+    bridgeStatus("Saving new Spine project with one clipping mask…");
+    const started=await requestBridge("begin_result",{session,files:[
+      {name:"mask.json",size:encoded.length},
+      {name:"mask-overlay.png",size:texture.length}]},25000);
+    if(!started?.stage)throw Error("Native output transaction rejected.");
+    await writeBytesToHost(started.stage,"mask.json",encoded);
+    await writeBytesToHost(started.stage,"mask-overlay.png",texture);
+    const saved=await requestBridge("commit_result",{session,stage:started.stage,openEditor:true},210000);
+    if(saved?.imported&&saved?.opened)
+      bridgeStatus("Mask applied · "+saved.project+" opened in local Spine Editor.");
+    else if(saved?.imported)
+      bridgeStatus("New .spine project saved; automatic editor opening was unavailable.",true);
+    else if(saved?.saved)
+      bridgeStatus("New Spine JSON and PNG saved. Native editor import was unavailable.",true);
+    else throw Error("Spine editor did not confirm output.");
+  }catch(error){bridgeStatus("Local Spine export: "+error.message,true);}
+  finally{
+    bridgeWriterBusy=false;
+    if(epoch!==bridgeWriteEpoch&&state.bridge&&state.result)queueBridgeWrite();
+  }
+}
+$("bridge-refresh").addEventListener("click",()=>connectEditor(false));
+window.addEventListener("message",event=>{
+  if(event.source===window&&event.origin===location.origin&&
+     event.data?.channel===BRIDGE_CHANNEL&&event.data.type==="ready")
+    void connectEditor(true);
+});
+setTimeout(()=>void connectEditor(true),500);
 
 status("Drop a Spine JSON and its images, or just one PNG.");
