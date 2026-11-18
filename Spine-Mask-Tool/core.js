@@ -114,74 +114,215 @@ export function imageMask(image, options = {}) {
     break;
   }
   if (!polygon) throw Error("No simple, valid single-contour polygon could be formed.");
-  const optimized = reduceContourVertices(raw, polygon, visibleAlpha, holeSeeds, d, w, h, desiredEpsilon);
+  // 30 live mobile skeletons x 240 vertices = 7,200 total clipping
+  // vertices. This is a configurable agent-side concurrency assumption,
+  // never a manual slider and never a guaranteed device-independent FPS.
+  const simultaneous = Math.max(1, Math.min(120, Math.round(Number(options.concurrentSkeletons ?? 30) || 30)));
+  const vertexBudget = Math.min(320, Math.max(80, Math.floor(7200 / simultaneous)));
+  const optimized = reduceContourVertices(polygon, visibleAlpha, holeSeeds, d, w, h, vertexBudget);
+  if (!optimized.qualityPassed) {
+    throw Error("Mobile clipping budget (" + vertexBudget +
+      " vertices at " + simultaneous + " skeletons) cannot preserve light faces and holes safely.");
+  }
   polygon = optimized.points;
   return {
     points: polygon, analysisWidth: w, analysisHeight: h, binary: mask,
     visibleMask, visibleAlpha,
-    stats: { vertices: polygon.length, verticesBeforeOptimization: optimized.before,
+    stats: { vertices: polygon.length, mobileVertexBudget: vertexBudget,
+      concurrentSkeletons: simultaneous, totalSceneClippingVertices: polygon.length * simultaneous,
+      verticesBeforeOptimization: optimized.before,
       vertexReductionPercent: Math.round(100 * (1 - polygon.length / optimized.before)),
       contourDriftPixels: optimized.drift, optimizationAccepted: optimized.accepted,
+      darkLeakPixels: optimized.dark, darkLeakPercent: optimized.darkPercent,
+      missingLightPixels: optimized.missing, missingLightPercent: optimized.missingPercent,
+      innerHolesPreserved: optimized.holesPreserved, mobileQualityPassed: optimized.qualityPassed,
       shapes: comps.length, bridges, slits, filledPinholes, ignored: removed, transparent,
       highlightRequested, highlightApplied: highlight.applied, highlightReason: highlight.reason, highlightCutoff: highlight.cutoff }
   };
 }
-// Deterministically halve excessive polygon detail if the actual selected
-// letter faces and counter openings remain topologically and visually stable.
-// Unlike a manual simplify slider, this chooses the minimum safe epsilon.
-function contourPixels(points,w,h) {
+// Mobile performance profile. 30 simultaneously visible skeletons share a
+// 7,200 clipping-vertex budget. Geometry is optimized once at authoring time;
+// no manual sliders or repeated per-frame optimization are added.
+function contourPixels(points,w,h){
   const out=new Uint8Array(w*h);
   for(let y=0;y<h;y++){
-    const yy=y+0.5,xs=[];
+    const yy=y+.5,xs=[];
     for(let i=0,j=points.length-1;i<points.length;j=i++){
       const a=points[i],b=points[j];
       if((a[1]>yy)===(b[1]>yy))continue;
       xs.push(a[0]+(yy-a[1])*(b[0]-a[0])/(b[1]-a[1]));
     }
     xs.sort((a,b)=>a-b);
-    for(let i=0;i+1<xs.length;i+=2){
-      const left=Math.max(0,Math.ceil(xs[i]-0.5));
-      const right=Math.min(w-1,Math.floor(xs[i+1]-0.5));
+    for(let j=0;j+1<xs.length;j+=2){
+      const left=Math.max(0,Math.ceil(xs[j]-.5));
+      const right=Math.min(w-1,Math.floor(xs[j+1]-.5));
       if(right>=left)out.fill(1,y*w+left,y*w+right+1);
     }
   }
   return out;
 }
-function reduceContourVertices(raw,base,alpha,holeSeeds,rgba,w,h,epsilon){
-  const goal=Math.floor(base.length/2),before=base.length;
-  if(before<48)return {points:base,before,drift:0,accepted:false};
-  const original=contourPixels(base,w,h);
-  const count=alpha.reduce((n,v)=>n+(v>0),0);
-  let originalDark=0;
+function optimizeMobilePolygon(base,visibleAlpha,holeSeeds,rgba,w,h,limit,darkWeight){
+  const n=base.length,prev=new Int32Array(n),next=new Int32Array(n);
+  const alive=new Uint8Array(n).fill(1),versions=new Uint32Array(n);
+  for(let i=0;i<n;i++){prev[i]=(i+n-1)%n;next[i]=(i+1)%n;}
+  const cross=(a,b,c)=>(b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]);
+  const holes=holeSeeds.map(t=>[t%w+.5,Math.floor(t/w)+.5]);
+  const coverage=contourPixels(base,w,h);
+  const isDark=new Uint8Array(w*h),isOpaque=new Uint8Array(w*h);
   for(let i=0;i<w*h;i++){
-    if(!original[i]||rgba[i*4+3]<20)continue;
     const p=i*4;
-    if(.2126*rgba[p]+.7152*rgba[p+1]+.0722*rgba[p+2]<50)originalDark++;
+    if(rgba[p+3]<=20)continue;
+    isOpaque[i]=1;
+    if(.2126*rgba[p]+.7152*rgba[p+1]+.0722*rgba[p+2]<50)isDark[i]=1;
   }
-  const maxDrift=Math.ceil(w*h*.016);
-  const maxMissing=Math.ceil(count*.02);
-  const maxDark=originalDark+Math.max(4,Math.ceil(originalDark*.12));
-  // Search from the smallest modification to the larger ones. Selection is
-  // automatic and fail-closed; no visual accuracy is sacrificed for 2x alone.
-  for(const scale of [1.4,1.5,1.55,1.6,1.65,1.7,1.72,1.75,1.8,1.9,2,2.2,2.4,2.7,3]){
-    const candidate=simplifyRing(raw,epsilon*scale);
-    if(candidate.length<3||candidate.length>goal||intersects(candidate))continue;
-    if(holeSeeds.some(p=>pointInPolygon(p%w+.5,Math.floor(p/w)+.5,candidate)))continue;
-    const pixels=contourPixels(candidate,w,h);
-    let drift=0,missing=0,dark=0;
-    for(let i=0;i<w*h;i++){
-      if(pixels[i]!==original[i])drift++;
-      if(alpha[i]>0&&!pixels[i])missing++;
-      if(pixels[i]&&rgba[i*4+3]>=20){
-        const p=i*4;
-        if(.2126*rgba[p]+.7152*rgba[p+1]+.0722*rgba[p+2]<50)dark++;
-      }
-      if(drift>maxDrift||missing>maxMissing||dark>maxDark)break;
+  const score=(i,covered)=>{
+    if(covered){
+      if(isDark[i])return darkWeight;
+      if(visibleAlpha[i]>0)return -6;
+      return isOpaque[i]?4:.15;
     }
-    if(drift<=maxDrift&&missing<=maxMissing&&dark<=maxDark)
-      return {points:candidate,before,drift,accepted:true};
+    return visibleAlpha[i]>0?10:0;
+  };
+  const intersectsSegment=(a,b,c,d)=>{
+    if(Math.max(a[0],b[0])<Math.min(c[0],d[0])||
+      Math.max(c[0],d[0])<Math.min(a[0],b[0])||
+      Math.max(a[1],b[1])<Math.min(c[1],d[1])||
+      Math.max(c[1],d[1])<Math.min(a[1],b[1]))return false;
+    const x=cross(a,b,c),y=cross(a,b,d),z=cross(c,d,a),t=cross(c,d,b);
+    return (x>=0&&y<=0||x<=0&&y>=0)&&(z>=0&&t<=0||z<=0&&t>=0);
+  };
+  let count=n;
+  function validChord(i){
+    const l=prev[i],r=next[i],a=base[l],b=base[r],c=base[i];
+    if(l===r||Math.abs(cross(a,c,b))<1e-7)return false;
+    const det=cross(a,c,b);
+    // Protect every real letter counter from being filled over.
+    for(const p of holes){
+      const u=cross(a,c,p)/det,v=cross(c,b,p)/det,t=cross(b,a,p)/det;
+      if(u>=-1e-8&&v>=-1e-8&&t>=-1e-8)return false;
+    }
+    for(let j=0;j<n;j++){
+      if(!alive[j])continue;
+      const k=next[j];
+      if(j===l||j===i||j===r||k===l||k===i||k===r)continue;
+      if(intersectsSegment(a,b,base[j],base[k]))return false;
+    }
+    return true;
   }
-  return {points:base,before,drift:0,accepted:false};
+  function trianglePixels(i,fn){
+    const a=base[prev[i]],b=base[i],c=base[next[i]];
+    const x0=Math.max(0,Math.ceil(Math.min(a[0],b[0],c[0])-.5));
+    const x1=Math.min(w-1,Math.floor(Math.max(a[0],b[0],c[0])-.5));
+    const y0=Math.max(0,Math.ceil(Math.min(a[1],b[1],c[1])-.5));
+    const y1=Math.min(h-1,Math.floor(Math.max(a[1],b[1],c[1])-.5));
+    const det=cross(a,b,c);
+    if(Math.abs(det)<1e-8)return;
+    for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){
+      const point=[x+.5,y+.5];
+      const u=cross(a,b,point)/det,v=cross(b,c,point)/det,t=cross(c,a,point)/det;
+      if(u>1e-8&&v>1e-8&&t>1e-8)fn(y*w+x);
+    }
+  }
+  const heap=[];
+  function push(item){
+    if(!item)return;
+    let k=heap.length;heap.push(item);
+    while(k>0){const p=(k-1)>>1;if(heap[p].cost<=item.cost)break;heap[k]=heap[p];k=p;}
+    heap[k]=item;
+  }
+  function pop(){
+    if(!heap.length)return null;
+    const top=heap[0],last=heap.pop();
+    if(!heap.length)return top;
+    let k=0;
+    while(k*2+1<heap.length){
+      let child=k*2+1;
+      if(child+1<heap.length&&heap[child+1].cost<heap[child].cost)child++;
+      if(heap[child].cost>=last.cost)break;
+      heap[k]=heap[child];k=child;
+    }
+    heap[k]=last;
+    return top;
+  }
+  function candidate(i){
+    if(!alive[i]||count<=3||!validChord(i))return null;
+    let delta=0,pixels=0;
+    trianglePixels(i,t=>{
+      delta+=score(t,!coverage[t])-score(t,!!coverage[t]);
+      pixels++;
+    });
+    return {i,cost:delta+Math.abs(cross(base[prev[i]],base[i],base[next[i]]))*.018,
+      pixels,version:versions[i]};
+  }
+  for(let i=0;i<n;i++)push(candidate(i));
+  const started=Date.now();
+  while(count>limit&&heap.length&&Date.now()-started<2500){
+    const item=pop();
+    if(!item||!alive[item.i]||versions[item.i]!==item.version)continue;
+    const fresh=candidate(item.i);
+    if(!fresh)continue;
+    if(fresh.pixels!==item.pixels||Math.abs(fresh.cost-item.cost)>1e-5){
+      versions[item.i]++;push(candidate(item.i));continue;
+    }
+    const i=item.i,l=prev[i],r=next[i];
+    trianglePixels(i,t=>{coverage[t]^=1;});
+    alive[i]=0;next[l]=r;prev[r]=l;count--;
+    for(const j of [l,r,prev[l],next[r]]){
+      if(alive[j]){versions[j]++;push(candidate(j));}
+    }
+  }
+  const polygon=[];
+  if(count>=3){
+    let start=alive.indexOf(1),pos=start;
+    do{
+      polygon.push(base[pos]);
+      pos=next[pos];
+    }while(pos!==start&&polygon.length<=n);
+  }
+  return polygon;
+}
+function evaluateMobileMask(polygon,baseline,visibleAlpha,holeSeeds,rgba,w,h,budget){
+  if(polygon.length>budget||polygon.length<3||intersects(polygon)||
+     holeSeeds.some(t=>pointInPolygon(t%w+.5,Math.floor(t/w)+.5,polygon)))return null;
+  const pixels=contourPixels(polygon);
+  let darkTotal=0,dark=0,missing=0,extra=0,drift=0,lightTotal=0;
+  for(let i=0;i<w*h;i++){
+    const p=i*4,opaque=rgba[p+3]>20,highlight=visibleAlpha[i]>0;
+    const low=opaque&&(.2126*rgba[p]+.7152*rgba[p+1]+.0722*rgba[p+2]<50);
+    if(low)darkTotal++;
+    if(highlight){lightTotal++;if(!pixels[i])missing++;}
+    if(pixels[i]&&low)dark++;
+    if(pixels[i]&&!highlight&&opaque&&!low)extra++;
+    if(pixels[i]!==baseline[i])drift++;
+  }
+  const darkPct=darkTotal?dark/darkTotal*100:0;
+  const missingPct=lightTotal?missing/lightTotal*100:0;
+  if(darkPct>3||missingPct>7||extra>Math.ceil(lightTotal*.045)||
+     drift>Math.ceil(w*h*.056))return null;
+  return {points:polygon,dark,missing,drift,darkPercent:+darkPct.toFixed(2),
+    missingPercent:+missingPct.toFixed(2),holesPreserved:true};
+}
+function reduceContourVertices(base,alpha,holeSeeds,rgba,w,h,budget){
+  const before=base.length;
+  const initial=contourPixels(base,w,h);
+  if(before<=budget){
+    const accepted=evaluateMobileMask(base,initial,alpha,holeSeeds,rgba,w,h,budget);
+    return {points:base,before,drift:0,dark:accepted?.dark??0,
+      darkPercent:accepted?.darkPercent??0,missing:accepted?.missing??0,
+      missingPercent:accepted?.missingPercent??0,holesPreserved:!!accepted,
+      qualityPassed:!!accepted,accepted:false};
+  }
+  // Cost: very high for including shadow pixels, high for removing a bright
+  // face, moderate for including other opaque pixels, negligible outside alpha.
+  // Try progressively stricter shadow penalties only when a candidate fails
+  // the automatic visual-quality gate.
+  for(const darkWeight of [80,120,200]){
+    const candidate=optimizeMobilePolygon(base,alpha,holeSeeds,rgba,w,h,budget,darkWeight);
+    const evaluation=evaluateMobileMask(candidate,initial,alpha,holeSeeds,rgba,w,h,budget);
+    if(evaluation)return {...evaluation,before,accepted:true,qualityPassed:true};
+  }
+  return {points:base,before,drift:0,dark:0,darkPercent:0,missing:0,
+    missingPercent:0,holesPreserved:false,accepted:false,qualityPassed:false};
 }
 // Histogram-driven segmentation; all image processing takes place in browser
 // memory. This function does not upload or retain source pixels.
