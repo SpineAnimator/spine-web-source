@@ -408,10 +408,12 @@ function zipMemory(files){
     const n=bytes(name),size=data.length,c=crc32(data);
     const a=new Uint8Array(30),v=new DataView(a.buffer);
     v.setUint32(0,0x04034b50,true);v.setUint16(4,20,true);
+    v.setUint16(6,0x800,true); // UTF-8 paths (including localized Spine images)
     v.setUint32(14,c,true);v.setUint32(18,size,true);v.setUint32(22,size,true);v.setUint16(26,n.length,true);
     locals.push(a,n,data);
     const b=new Uint8Array(46),w=new DataView(b.buffer);
     w.setUint32(0,0x02014b50,true);w.setUint16(4,20,true);w.setUint16(6,20,true);
+    w.setUint16(8,0x800,true);
     w.setUint32(16,c,true);w.setUint32(20,size,true);w.setUint32(24,size,true);w.setUint16(28,n.length,true);
     w.setUint32(42,offset,true);
     centrals.push(b,n);
@@ -429,6 +431,53 @@ function nativeStatus(text,error=false){
 // The ZIP is self-contained: one Spine clip and a fill texture with alpha
 // equal to the ORIGINAL silhouette. Rendering the included fill never shows
 // connector pixels, even when the clip must remain one contiguous polygon.
+
+// User download must retain the ACTUAL skeleton and every supplied asset.
+// The tiny scene.json + fill.png package below is only for private native PNG
+// rendering, not a replacement for the artist's Spine project.
+async function buildPreservedSpineProjectZip(){
+  if(!state.result?.json)throw Error("Generate a mask first.");
+  const base=(state.base||"spine").replace(/[^a-z0-9_-]/gi,"_").slice(0,80)||"spine";
+  const output=[[base+"-mask.json",bytes(JSON.stringify(state.result.json,null,2))]];
+  const seen=new Set([output[0][0].toLowerCase()]);
+  let total=output[0][1].length;
+  function safeImagePath(file){
+    const relative=String(file.webkitRelativePath||"").replace(/\\/g,"/");
+    const parts=relative.split("/");
+    const folder=parts.findIndex(x=>x.toLowerCase()==="images");
+    const suffix=folder>=0?parts.slice(folder+1):[file.name];
+    if(!suffix.length||suffix.some(x=>!x||x==="."||x===".."||x.includes("/")||x.includes("\\")||/[\x00-\x1f]/.test(x)))
+      throw Error("Unsafe source image path.");
+    return "images/"+suffix.join("/");
+  }
+  for(const item of state.images){
+    const path=safeImagePath(item.file);
+    const key=path.toLowerCase();
+    if(seen.has(key))throw Error("Duplicate image path in Spine project: "+path);
+    const buffer=new Uint8Array(await item.file.arrayBuffer());
+    total+=buffer.length;
+    if(total>128*1024*1024)throw Error("Project ZIP exceeds 128 MB.");
+    output.push([path,buffer]);seen.add(key);
+  }
+  if(state.result.imageOnly){
+    const canvas=document.createElement("canvas");
+    canvas.width=state.source.width;canvas.height=state.source.height;
+    canvas.getContext("2d").drawImage(state.source,0,0);
+    const blob=await new Promise((resolve,reject)=>canvas.toBlob(x=>
+      x?resolve(x):reject(Error("Could not encode image-only Spine texture.")),"image/png"));
+    const path="images/image.png";
+    if(!seen.has(path)){
+      const data=new Uint8Array(await blob.arrayBuffer());
+      total+=data.length;
+      if(total>128*1024*1024)throw Error("Project ZIP exceeds 128 MB.");
+      output.push([path,data]);seen.add(path);
+    }
+  }
+  if(output.length<2)throw Error("Spine source images are missing.");
+  if(output.length>240)throw Error("Too many project assets for this ZIP.");
+  return zipMemory(output);
+}
+
 async function buildInvisibleBridgePackage(){
   if(!state.result||!state.source)throw Error("Generate a mask first.");
   const mask=state.result.mask;
@@ -526,8 +575,8 @@ $("download-spine-zip").addEventListener("click",async()=>{
   const button=$("download-spine-zip");
   button.disabled=true;
   try{
-    const zip=await buildInvisibleBridgePackage();
-    downloadBlob(new Blob([zip],{type:"application/zip"}),(state.base||"mask")+"-bridgeless-spine.zip");
+    const zip=await buildPreservedSpineProjectZip();
+    downloadBlob(new Blob([zip],{type:"application/zip"}),(state.base||"mask")+"-complete-spine-mask.zip");
   }catch(e){nativeStatus("Spine ZIP: "+e.message,true);}
   finally{button.disabled=!state.result;}
 });
