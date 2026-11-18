@@ -7,115 +7,176 @@
 <meta name="description" content="Make one continuous Spine clipping polygon around letters and image regions.">
 <title>Spine Mask Tool</title>
 <style>
-:root{color-scheme:dark;font-family:Inter,ui-sans-serif,system-ui,-apple-system,Arial,sans-serif;--bg:#090c11;--panel:#141921;--border:#2c343f;--muted:#a6b0bc;--text:#f4f6f8;--gold:#ffa337;--input:#0d1118}
-*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 20% -12%,#2b241c 0,transparent 42%),var(--bg);color:var(--text);min-height:100vh}
-header,main,footer{max-width:1260px;margin:auto;padding:0 24px}
-header{display:flex;justify-content:space-between;align-items:center;gap:12px;padding-top:24px;padding-bottom:22px;border-bottom:1px solid var(--border)}
-.logo{font-weight:800;letter-spacing:.13em;font-size:16px}.logo b{color:var(--gold)}.version{color:var(--muted);font-size:12px}
-h1{font-size:clamp(28px,3.5vw,42px);letter-spacing:-.04em;margin:30px 0 5px}
-.sub{font-size:14px;line-height:1.6;color:var(--muted);margin:0 0 22px}
-main{display:grid;grid-template-columns:minmax(300px,410px) minmax(320px,1fr);align-items:start;gap:20px;padding-bottom:40px}
-.intro{grid-column:1/-1}.panel{border-radius:18px;border:1px solid var(--border);background:var(--panel);padding:22px}
-h2{font-size:14px;letter-spacing:.08em;text-transform:uppercase;margin:0 0 16px;color:#e6edf6}
-.file-zone{display:block;position:relative;border:1px dashed #6f6147;padding:24px 18px;background:#191913;border-radius:14px;text-align:center;min-height:126px;cursor:pointer}
-.file-zone:hover,.dragging .file-zone{border-color:var(--gold);background:#292111}
-.file-zone input{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer}
-.file-zone strong{display:block;font-size:17px;margin-bottom:6px}.file-zone small{display:block;color:var(--muted);line-height:1.5}
-label.field{display:block;color:var(--muted);font-size:12px;font-weight:650;margin:18px 0 7px}
-select,input[type=number]{background:var(--input);color:var(--text);width:100%;padding:12px 13px;border:1px solid var(--border);border-radius:10px;font:inherit;font-size:13px}
-.agent-mode{display:flex;align-items:flex-start;gap:12px;padding:14px;border:1px solid #70613e;border-radius:12px;background:#20201b;cursor:pointer}
-.agent-mode input{accent-color:var(--gold);width:18px;height:18px;margin:2px 0;flex-shrink:0}
-.agent-mode strong{font-size:14px;display:block}.agent-mode small{font-size:12px;color:var(--muted);display:block;line-height:1.5;margin-top:4px}
-.setting{margin-top:16px}.setting label{font-size:12px;color:var(--muted);display:flex;align-items:center;justify-content:space-between}
-.small-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:0 16px}
-.tip{font-size:12px;color:var(--muted);line-height:1.6;margin-top:18px}
-.row{display:flex;align-items:center;gap:10px;margin-top:18px}.row button{flex:1}
-button{border:1px solid var(--border);border-radius:10px;background:#252e39;color:#f4f6f8;min-height:44px;font:inherit;font-weight:700;font-size:13px;padding:12px 16px;cursor:pointer;white-space:nowrap}
-button.primary{background:var(--gold);color:#1a1005;border-color:var(--gold)}
-button:hover:not(:disabled){filter:brightness(1.12)}button:disabled{opacity:.35;cursor:not-allowed}
-button:focus-visible,select:focus-visible,.file-zone:focus-within{outline:2px solid var(--gold);outline-offset:3px}
-.preview-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap}
-.preview-head label{font-size:12px;color:var(--muted)}input[type=checkbox]{accent-color:var(--gold)}
-.stage{min-height:290px;height:min(54vh,600px);border:1px solid #303944;border-radius:12px;display:grid;place-items:center;overflow:hidden;background-color:#10151c;background-image:linear-gradient(45deg,#161e28 25%,transparent 25%),linear-gradient(-45deg,#161e28 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#161e28 75%),linear-gradient(-45deg,transparent 75%,#161e28 75%);background-size:24px 24px;background-position:0 0,0 12px,12px -12px,-12px 0}
-canvas{width:100%;height:100%;object-fit:contain}
-.source{font-size:12px;color:var(--muted);margin:12px 0;overflow-wrap:anywhere}
-.summary{font-size:13px;font-weight:700;color:#ffd49c;min-height:22px}
-.status{font-size:12px;color:#b1becb;line-height:1.5;min-height:36px;margin-top:14px}
-.status[data-error=yes]{color:#ffaaa4}
-.helper{font-size:12px;line-height:1.6;color:var(--muted);border-top:1px solid var(--border);margin-top:18px;padding-top:14px}
-.helper strong{color:var(--text)}.downloads{margin-top:18px;display:flex;flex-wrap:wrap;gap:10px}.downloads button{flex:1}
-footer{border-top:1px solid var(--border);padding-top:16px;padding-bottom:22px;font-size:12px;color:var(--muted)}
-a{color:var(--gold)}[hidden]{display:none!important}
-@media(max-width:850px){main{grid-template-columns:1fr}.intro{grid-column:1}.stage{height:min(50vh,480px)}}
-@media(max-width:520px){header,main,footer{padding-left:14px;padding-right:14px}.panel{padding:16px}.small-grid{gap:0 12px}}
+:root { color-scheme: dark; font-family: "IBM Plex Sans", Inter, ui-sans-serif, system-ui, sans-serif; --bg:#1a1a1a; --tile:#222; --panel:#000; --border:#2a2a2a; --muted:#8a8a8a; --text:#f2f2f2; --accent:#8a1c1c; --white:#e8e8e8; }
+* { box-sizing: border-box; }
+html,body { margin:0; min-height:100%; }
+body { background-color:var(--bg); color:var(--text); background-image:linear-gradient(45deg,var(--tile) 25%,transparent 25%),linear-gradient(-45deg,var(--tile) 25%,transparent 25%),linear-gradient(45deg,transparent 75%,var(--tile) 75%),linear-gradient(-45deg,transparent 75%,var(--tile) 75%); background-size:20px 20px; background-position:0 0,0 10px,10px -10px,-10px 0; overflow:hidden; }
+button,input,select { font:inherit; }
+button { cursor:pointer; min-width:0; }
+.app-shell { width:100%; height:calc(100dvh - 32px); min-height:540px; margin:0; padding:24px 32px 12px; display:grid; grid-template-columns:minmax(0,1fr); grid-template-rows:44px 44px minmax(0,1fr) 44px auto; grid-template-areas:"header" "fields" "panels" "actions" "status"; gap:12px; }
+.toolbar { grid-area:header; display:flex; align-items:center; gap:10px; min-width:0; }
+h1 { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:1.2rem; font-weight:500; letter-spacing:-.02em; line-height:1.2; margin:0; }
+.version { font-size:12px; color:var(--muted); white-space:nowrap; margin-right:2px; }
+.chips { display:flex; gap:8px; flex:0 0 auto; }
+.chip { display:flex; align-items:center; justify-content:center; gap:8px; height:44px; padding:0 12px; border:1px solid var(--border); background:var(--panel); color:var(--muted); font-size:13px; white-space:nowrap; cursor:pointer; user-select:none; }
+.chip:has(input:checked) { background:var(--white); color:#000; border-color:#f2f2f2; }
+.chip input { appearance:none; width:12px; height:12px; border:1px solid currentColor; margin:0; }
+.chip input:checked { background:currentColor; box-shadow:inset 0 0 0 2px var(--white); }
+.fields { grid-area:fields; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; min-width:0; }
+.field-overview { display:flex; justify-content:space-between; align-items:center; gap:8px; min-width:0; min-height:44px; padding:0 12px; background:var(--panel); border:1px solid var(--border); color:var(--muted); font-size:13px; }
+.field-overview strong { font-weight:500; color:#bdbdbd; text-align:right; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.panels { grid-area:panels; display:grid; grid-template-columns:minmax(0,2fr) minmax(280px,1fr); gap:16px; min-height:0; }
+.preview-panel,.control-panel { min-width:0; min-height:0; background:var(--panel); border:1px solid var(--border); }
+.preview-panel { display:flex; flex-direction:column; gap:12px; padding:16px; }
+.preview-head { display:flex; align-items:center; justify-content:space-between; gap:10px; color:var(--muted); font-size:13px; }
+.preview-head strong { color:var(--text); font-weight:500; }
+.preview-head span { font-size:12px; text-align:right; }
+.file-zone { display:flex; position:relative; flex-direction:column; justify-content:center; align-items:center; min-height:76px; padding:12px; border:2px dashed #444; background:rgba(0,0,0,.5); color:var(--muted); text-align:center; cursor:pointer; gap:4px; transition:border-color .2s,background .2s; }
+.file-zone strong { display:block; font-size:14px; font-weight:500; color:var(--text); }
+.file-zone small { display:block; font-size:12px; line-height:1.3; color:var(--muted); }
+.file-zone input { position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; }
+.file-zone:hover,.dragging .file-zone { border-color:var(--accent); background:rgba(138,28,28,.20); }
+.stage { flex:1 1 auto; position:relative; min-height:180px; overflow:hidden; display:grid; place-items:center; background-color:#1a1a1a; border:1px solid var(--border); background-image:linear-gradient(45deg,#222 25%,transparent 25%),linear-gradient(-45deg,#222 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#222 75%),linear-gradient(-45deg,transparent 75%,#222 75%); background-size:20px 20px; background-position:0 0,0 10px,10px -10px,-10px 0; }
+canvas { display:block; width:100%; height:100%; object-fit:contain; }
+.preview-meta { display:flex; align-items:center; flex-wrap:wrap; justify-content:space-between; gap:8px; min-height:23px; }
+.source { font-size:12px; color:var(--muted); overflow-wrap:anywhere; }
+.summary { font-size:13px; color:var(--text); font-weight:500; }
+.control-panel { display:flex; flex-direction:column; gap:14px; padding:16px; overflow-y:auto; scrollbar-color:#444 #000; }
+.panel-title { display:flex; align-items:center; justify-content:space-between; gap:12px; padding-bottom:12px; border-bottom:1px solid var(--border); font-size:14px; font-weight:500; }
+.panel-title span { color:var(--muted); font-size:12px; font-weight:400; }
+h2 { font-size:13px; font-weight:500; color:var(--text); margin:0 0 8px; }
+label.field { display:block; font-size:12px; color:var(--muted); margin:0 0 7px; }
+select,input[type=file]:not(#files) { display:block; width:100%; min-width:0; min-height:38px; padding:8px; color:var(--text); border:1px solid var(--border); border-radius:0; background:#0a0a0a; font-size:12px; }
+select { padding:10px; }
+.setting { margin:0; }
+.status { font-size:12px; color:var(--muted); line-height:1.5; margin:6px 0; overflow-wrap:anywhere; }
+.status[data-error=yes] { color:#e49c9c; }
+.tip { font-size:12px; line-height:1.5; color:var(--muted); margin:8px 0 0; }
+.row,.downloads { display:flex; flex-wrap:wrap; gap:8px; }
+.row button,.downloads button { flex:1 1 auto; }
+button { min-height:44px; padding:9px 12px; border:1px solid var(--border); border-radius:0; background:var(--panel); color:var(--muted); font-size:13px; font-weight:500; white-space:normal; }
+button.primary { color:#000; background:#f2f2f2; border-color:#f2f2f2; }
+button:hover:not(:disabled) { border-color:#777; color:var(--text); }
+button.primary:hover:not(:disabled) { background:#fff; color:#000; }
+button:disabled { opacity:.3; cursor:default; }
+:focus-visible { outline:2px solid #a84242; outline-offset:2px; }
+.actions { grid-area:actions; display:flex; align-items:stretch; gap:8px; min-width:0; }
+.actions button { flex:1 1 0; }
+.actions #generate { flex:2 1 0; }
+.actions #reset { flex:0 1 120px; }
+.status-line { grid-area:status; display:flex; align-items:center; min-height:22px; color:var(--muted); font-size:12px; }
+.status-line .status { margin:0; }
+.native-settings { border-top:1px solid var(--border); padding-top:14px; display:flex; flex-direction:column; gap:10px; }
+.native-settings .downloads { margin:0; }
+#native-result { padding:12px 0; }
+#native-image { max-width:100%; border:1px solid var(--border); background:repeating-conic-gradient(#222 0% 25%,#111 0% 50%) 50% / 20px 20px; }
+.helper { border-top:1px solid var(--border); padding-top:12px; font-size:12px; color:var(--muted); line-height:1.5; }
+.helper summary { color:#bdbdbd; cursor:pointer; }
+.helper p { margin:8px 0 0; }
+.helper strong { color:var(--text); }
+a { color:#b9b9b9; }
+a:hover { color:#fff; }
+footer { min-height:32px; padding:4px 32px 10px; color:var(--muted); font-size:11px; line-height:18px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+[hidden] { display:none!important; }
+@media (max-width:900px) {
+ body { overflow:auto; }
+ .app-shell { height:auto; min-height:100dvh; padding:16px; grid-template-rows:auto auto auto auto auto; gap:12px; }
+ .toolbar { flex-wrap:wrap; }
+ .chips { width:100%; }
+ .panels { grid-template-columns:minmax(0,1fr); }
+ .preview-panel { min-height:480px; }
+ .stage { min-height:300px; }
+ .control-panel { max-height:none; overflow:visible; }
+ footer { padding-left:16px; padding-right:16px; }
+}
+@media (max-width:540px) {
+ .version { display:none; }
+ .chips .chip { flex:1; }
+ .fields { grid-template-columns:1fr; }
+ .field-overview { min-height:36px; }
+ .preview-panel,.control-panel { padding:12px; }
+ .preview-panel { min-height:380px; }
+ .stage { min-height:230px; }
+ .preview-head span { display:none; }
+ .actions { flex-wrap:wrap; }
+ .actions button,.actions #generate,.actions #reset { flex:1 1 calc(50% - 4px); }
+}
 </style>
 </head>
 <body>
-<header><div class="logo">SPINE <b>MASK</b> TOOL</div><span class="version">4.3 · Single clip</span></header>
-<main>
-  <section class="intro">
-    <h1>One image. One mask.</h1>
-    <p class="sub">One Spine mask, automatic light-face extraction and invisible connections. Import a Spine JSON + chosen image, or start from PNG.</p>
-  </section>
-  <section class="panel" aria-label="Source and settings">
-    <h2>01 / Input</h2>
-    <label class="file-zone">
-      <strong>Drop files or browse</strong>
-      <small>Spine JSON + individual region PNGs · or PNG / WebP / JPG alone</small>
-      <input id="files" type="file" accept=".json,.spine,.png,.webp,.jpg,.jpeg,image/*" multiple aria-label="Choose skeleton and images">
-    </label>
-    <div id="target-row" hidden>
-      <label class="field" for="target">Target region in skeleton</label>
-      <select id="target" aria-label="Choose target image in skeleton"></select>
+<main class="app-shell">
+  <header class="toolbar">
+    <h1>Spine Mask Tool</h1>
+    <span class="version">4.3 · Single clip</span>
+    <div class="chips">
+      <label class="chip"><input id="highlight-edges" type="checkbox" checked data-agent-control="highlight-edges" aria-label="Use light-text edge and ignore dark shadows"><span>Light edges</span></label>
+      <label class="chip"><input id="show-points" type="checkbox" aria-label="Show mask vertices"><span>Vertices</span></label>
     </div>
-    <div id="image-row" hidden>
-      <label class="field" for="image-source">Exact source image · PNG / WebP / JPG</label>
-      <select id="image-source" aria-label="Choose exact texture to trace"></select>
-    </div>
-    <div id="local-bridge" class="setting" aria-label="Local Spine Editor connection">
-      <h2 style="margin-top:25px">Local Spine Editor</h2>
-      <p id="bridge-status" class="status" role="status" aria-live="polite">Checking Chrome bridge…</p>
-      <div class="row"><button id="bridge-refresh" type="button">Reconnect editor</button></div>
-      <p class="tip">When the Spine Resize Chrome Bridge is connected, the open project is imported, masked and returned automatically as a new project. Original files stay untouched. Images remain in your browser and on your computer. <a href="https://github.com/SpineAnimator/Spine-Resize/releases/tag/spine-mask-bridge-v1" target="_blank" rel="noopener noreferrer">Chrome Bridge</a></p>
-    </div>
-    <h2 style="margin-top:25px">02 / Automatic detection</h2>
-    <label for="highlight-edges" class="agent-mode">
-      <input id="highlight-edges" type="checkbox" checked data-agent-control="highlight-edges"
-        aria-label="Use light-text edge and ignore dark shadows">
-      <span><strong>Light text edges</strong><small>Ignore black, brown shadows and dark extrusion · Agent controllable</small></span>
-    </label>
-    <p class="tip">Automatic highlight detection, geometry, one clipping mask and invisible routing. No manual thresholds or sliders.</p>
-    <div class="row"><button class="primary" id="generate">Generate mask</button><button id="reset">Reset</button></div>
-    <div id="status" class="status" role="status" aria-live="polite"></div>
-  </section>
-  <section class="panel" aria-label="Mask preview and export">
-    <div class="preview-head"><h2>03 / Preview</h2><label><input type="checkbox" id="show-points"> Vertices</label></div>
-    <div class="stage"><canvas id="preview" width="600" height="400" aria-label="Source image and generated mask outline"></canvas></div>
-    <p id="source-name" class="source">No image supplied</p>
-    <div class="summary" id="summary">No mask generated.</div>
-    <div class="downloads">
-      <button id="download-json" disabled>Clipping JSON</button>
-      <button id="download-png" hidden>Download image.png</button>
-      <button class="primary" id="download-spine-zip" disabled>Download Spine ZIP · no visible bridges</button>
-    </div>
-    <div class="setting">
-      <label class="field" for="native-fill">Second image for native masking (optional)</label>
-      <input id="native-fill" type="file" accept="image/png,image/webp,image/jpeg" aria-label="Image shown through the clipping mask">
-    </div>
-    <div class="downloads">
-      <button id="native-preview" disabled>Render in Spine Editor 4.3.26</button>
-    </div>
-    <p class="tip">Native preview uses a private, short-lived Cloudflare handoff and a licensed Spine Editor in GitHub Actions. The source artwork is not uploaded: only generated mask geometry and a second image that has already been cut to the original letter silhouette. Bridge pixels stay fully transparent. The upload happens only when you press the button.</p>
-    <p id="native-status" class="status" role="status" aria-live="polite"></p>
-    <div id="native-result" hidden><h2>04 / Native Spine Render</h2><img id="native-image" alt="PNG rendered by licensed Spine Editor 4.3.26" style="max-width:100%;background:repeating-conic-gradient(#27303b 0% 25%,#141b22 0% 50%) 50% / 18px 18px;border:1px solid var(--border);border-radius:12px"><div class="downloads"><button id="native-download">Download native PNG</button></div></div>
-    <div class="helper">
-      <strong>Spine export:</strong> one <code>clipping</code> attachment, placed immediately before the target region slot with <code>end</code> set to that slot. Only the bundled Spine ZIP contains the alpha-protected second image; raw geometry JSON by itself cannot suppress the connector pixels if you later apply a fully opaque texture. Existing JSON skeletons are retained, including bones, skins and animations.
-      <p>For image-only input, save both JSON and image.png; put PNG in the Spine <code>images/</code> folder. For existing JSON, select the exact region PNG; a packed atlas sheet is not a region. Binary .spine requires conversion by a licensed Spine Editor and is not silently replaced by a new skeleton.</p>
-    </div>
-  </section>
+  </header>
+  <div class="fields" aria-label="Project settings">
+    <div class="field-overview"><span>Input</span><strong>Spine / Images</strong></div>
+    <div class="field-overview"><span>Detection</span><strong>Automatic</strong></div>
+    <div class="field-overview"><span>Output</span><strong>Spine 4.3</strong></div>
+  </div>
+  <div class="panels">
+    <section class="preview-panel" aria-label="Source and mask preview">
+      <div class="preview-head"><strong>Preview</strong><span>.json .spine .png .webp .jpg</span></div>
+      <label class="file-zone">
+        <strong>Drop files or browse</strong>
+        <small>Spine JSON + region images · or one PNG / WebP / JPG</small>
+        <input id="files" type="file" accept=".json,.spine,.png,.webp,.jpg,.jpeg,image/*" multiple aria-label="Choose skeleton and images">
+      </label>
+      <div class="stage"><canvas id="preview" width="600" height="400" aria-label="Source image and generated mask outline"></canvas></div>
+      <div class="preview-meta">
+        <span id="source-name" class="source">No image supplied</span>
+        <span class="summary" id="summary">No mask generated.</span>
+      </div>
+    </section>
+    <section class="control-panel" aria-label="Mask settings and native preview">
+      <div class="panel-title">Project <span>One clipping mask</span></div>
+      <div id="target-row" hidden>
+        <label class="field" for="target">Target region in skeleton</label>
+        <select id="target" aria-label="Choose target image in skeleton"></select>
+      </div>
+      <div id="image-row" hidden>
+        <label class="field" for="image-source">Source region image</label>
+        <select id="image-source" aria-label="Choose exact texture to trace"></select>
+      </div>
+      <div id="local-bridge" class="setting" aria-label="Local Spine Editor connection">
+        <h2>Local Spine Editor</h2>
+        <p id="bridge-status" class="status" role="status" aria-live="polite">Checking Chrome bridge…</p>
+        <div class="row"><button id="bridge-refresh" type="button">Reconnect editor</button></div>
+        <details class="helper"><summary>Chrome Bridge</summary><p>The Spine Resize Chrome Bridge imports the open project and returns the masked result as a new project. The original remains untouched. Source images stay local. <a href="https://github.com/SpineAnimator/Spine-Resize/releases/tag/spine-mask-bridge-v1" target="_blank" rel="noopener noreferrer">Extension</a></p></details>
+      </div>
+      <div class="native-settings">
+        <h2>Native render</h2>
+        <label class="field" for="native-fill">Second image (optional)</label>
+        <input id="native-fill" type="file" accept="image/png,image/webp,image/jpeg" aria-label="Image shown through the clipping mask">
+        <div class="downloads"><button id="native-preview" disabled>Render in Spine Editor 4.3.26</button></div>
+        <p id="native-status" class="status" role="status" aria-live="polite"></p>
+        <div id="native-result" hidden>
+          <h2>Native Spine Render</h2>
+          <img id="native-image" alt="PNG rendered by licensed Spine Editor 4.3.26">
+          <div class="downloads"><button id="native-download">Download native PNG</button></div>
+        </div>
+        <details class="helper"><summary>Native render details</summary><p>Only mask geometry and the already alpha-protected second image are submitted through a private, short-lived Cloudflare handoff to licensed Spine Editor GitHub Actions, when you press Render. Source artwork stays local.</p></details>
+      </div>
+      <details class="helper"><summary>Export details</summary>
+        <p>One <strong>clipping</strong> attachment is inserted before the selected region slot and ends at that slot. Existing bones, skins and animations are retained.</p>
+        <p>The Spine ZIP contains the alpha-protected second image; geometry JSON alone cannot hide connector pixels under an opaque texture. For image-only input, use JSON and image.png in the Spine images/ folder. A packed atlas sheet is not an individual region; binary .spine must be converted with licensed Spine Editor.</p>
+      </details>
+    </section>
+  </div>
+  <div class="actions">
+    <button id="generate" class="primary" type="button">Generate mask</button>
+    <button id="reset" type="button">Reset</button>
+    <button id="download-spine-zip" disabled type="button">Spine ZIP</button>
+    <button id="download-json" disabled type="button">Clipping JSON</button>
+    <button id="download-png" hidden type="button">image.png</button>
+  </div>
+  <div class="status-line"><p id="status" class="status" role="status" aria-live="polite"></p></div>
 </main>
-<footer>Local project processing · Native preview is optional · <a href="https://esotericsoftware.com/spine-clipping" rel="noopener" target="_blank">Spine clipping documentation</a></footer>
+<footer>Local processing · Spine 4.3.26 · <a href="https://esotericsoftware.com/spine-clipping" rel="noopener" target="_blank">Spine clipping documentation</a></footer>
 <script type="module" src="./app.js"></script>
-
 </body>
 </html>
