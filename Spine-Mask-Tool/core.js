@@ -404,3 +404,60 @@ export function exportJson(original, target, points, sourceW, sourceH) {
   }
   return { json: data, slot: name };
 }
+
+
+// Merge a new clipping+overlay pair into an EXISTING Spine skeleton.
+// The original target region, animation, mesh data and draw order are retained.
+// The mask clips only the NEW overlay, not the original artwork.
+export function exportLocalEditorMask(original, target, points, sourceW, sourceH) {
+  if (!original || !target || !Array.isArray(points) || points.length < 3)
+    throw Error("Existing Spine JSON, chosen region and a valid mask are required.");
+  if (points.length > 2500) throw Error("Native Spine mask exceeds 2500 vertices.");
+  const json = JSON.parse(JSON.stringify(original));
+  const ix = json.slots?.findIndex(s => s.name === target.slot);
+  if (ix === undefined || ix < 0) throw Error("Target Spine slot not found.");
+  const originalSlot = json.slots[ix];
+  const safe = target.slot.replace(/[^a-zA-Z0-9_]/g, "_");
+  const unique = base => {
+    let name = base, n = 2;
+    while (json.slots.some(s => s.name === name)) name = base + "_" + n++;
+    return name;
+  };
+  const clippingSlot = unique("auto_mask_" + safe);
+  const overlaySlot = unique("auto_mask_overlay_" + safe);
+  const overlayAttachment = "auto_mask_overlay";
+  const overlayRegion = Object.assign({}, target.data, {
+    type: "region", path: "mask-overlay", width: Number(target.data.width) || sourceW,
+    height: Number(target.data.height) || sourceH
+  });
+  // Slot insertion after target leaves the original image untouched and
+  // clips the additive overlay exclusively. Existing slot names stay stable.
+  json.slots.splice(ix + 1, 0,
+    {name: clippingSlot, bone: originalSlot.bone, attachment:"clip"},
+    {name: overlaySlot, bone: originalSlot.bone, attachment:overlayAttachment, blend:"normal"});
+  const clip = {type:"clipping",end:overlaySlot,vertexCount:points.length,
+    vertices:maskVertices(points,sourceW,sourceH,target.data)};
+  const skins = Array.isArray(json.skins)
+    ? json.skins
+    : Object.entries(json.skins||{}).map(([name,attachments])=>({name,attachments}));
+  const matching = skins.filter(s => s.attachments?.[target.slot]?.[target.attachment]);
+  if (!matching.length) throw Error("Target region attachment missing in loaded skins.");
+  for(const skin of matching){
+    skin.attachments[clippingSlot] = {clip:JSON.parse(JSON.stringify(clip))};
+    skin.attachments[overlaySlot] = {[overlayAttachment]:JSON.parse(JSON.stringify(overlayRegion))};
+  }
+  // The default skin can supply the overlay when the target's selected skin
+  // changes. It must not mutate any original attachment.
+  const fallback = skins.find(s=>s.name==="default");
+  if(fallback && !matching.includes(fallback)){
+    fallback.attachments ||= {};
+    fallback.attachments[clippingSlot]={clip:JSON.parse(JSON.stringify(clip))};
+    fallback.attachments[overlaySlot]={[overlayAttachment]:JSON.parse(JSON.stringify(overlayRegion))};
+  }
+  if(!Array.isArray(json.skins)){
+    for(const skin of skins)json.skins[skin.name]=skin.attachments;
+  }
+  json.skeleton ||= {};
+  json.skeleton.images = "./images/";
+  return {json, clippingSlot, overlaySlot, overlayAttachment};
+}
