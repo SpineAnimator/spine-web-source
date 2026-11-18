@@ -161,6 +161,7 @@ footer { min-height:32px; padding:4px 32px 10px; color:var(--muted); font-size:1
         <p id="bridge-status" class="status" role="status" aria-live="polite">Checking bridge…</p>
         <div class="row bridge-actions">
           <button id="bridge-refresh" type="button">Import open Spine project</button>
+          <button id="bridge-choose" type="button">Choose local Spine project</button>
           <a class="install-button" id="bridge-install" href="https://github.com/SpineAnimator/Spine-Resize/releases/download/spine-mask-bridge-v1/Spine-Mask-Resize-Bridge.zip" target="_blank" rel="noopener noreferrer" download>Install Bridge</a>
         </div>
         <details class="helper" id="bridge-setup">
@@ -168,8 +169,8 @@ footer { min-height:32px; padding:4px 32px 10px; color:var(--muted); font-size:1
           <ol>
             <li>Download and unpack <strong>Spine Mask + Resize Bridge</strong>.</li>
             <li>Chrome → Extensions → Developer mode → <strong>Load unpacked</strong>. Choose the extracted extension folder.</li>
-            <li>On macOS, run <code>python3 install_spinemask_host.py</code> from that folder to register the restricted native host. This step must come <strong>after</strong> installing the extension. Windows needs a packaged native host executable and is not supported by the current ZIP.</li>
-            <li>Restart Chrome, open a project in Spine 4.3.26 and click <strong>Import open Spine project</strong>.</li>
+            <li>On macOS, run <code>python3 install_spinemask_host.py</code> from the extracted folder after loading the extension. The host is registered only for that extension. On Windows use a package containing <code>spinemaskbridge.exe</code>.</li>
+            <li>Restart Chrome. Use <strong>Import open Spine project</strong>, or <strong>Choose local Spine project</strong> if macOS blocks automatic document detection. Opening a .spine ZIP with images also uses the local editor to convert binary files.</li>
           </ol>
           <p>Only the exact Spine Mask Tool page can communicate with the host. The original project remains untouched. <a href="https://github.com/SpineAnimator/Spine-Resize/blob/main/spine-bridge/install_spinemask_host.py" target="_blank" rel="noopener noreferrer">Installer source</a></p>
         </details>
