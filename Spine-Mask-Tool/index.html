@@ -88,9 +88,9 @@ a{color:var(--gold)}[hidden]{display:none!important}
     <p id="source-name" class="source">No image supplied</p>
     <div class="summary" id="summary">No mask generated.</div>
     <div class="downloads">
-      <button class="primary" id="download-json" disabled>Download JSON</button>
+      <button id="download-json" disabled>Clipping JSON</button>
       <button id="download-png" hidden>Download image.png</button>
-      <button id="download-spine-zip" disabled>Download bridgeless Spine ZIP</button>
+      <button class="primary" id="download-spine-zip" disabled>Download Spine ZIP · no visible bridges</button>
     </div>
     <div class="setting">
       <label class="field" for="native-fill">Second image for native masking (optional)</label>
@@ -103,7 +103,7 @@ a{color:var(--gold)}[hidden]{display:none!important}
     <p id="native-status" class="status" role="status" aria-live="polite"></p>
     <div id="native-result" hidden><h2>04 / Native Spine Render</h2><img id="native-image" alt="PNG rendered by licensed Spine Editor 4.3.26" style="max-width:100%;background:repeating-conic-gradient(#27303b 0% 25%,#141b22 0% 50%) 50% / 18px 18px;border:1px solid var(--border);border-radius:12px"><div class="downloads"><button id="native-download">Download native PNG</button></div></div>
     <div class="helper">
-      <strong>Spine export:</strong> one <code>clipping</code> attachment, placed immediately before the target region slot with <code>end</code> set to that slot. Existing JSON skeletons are retained, including bones, skins and animations.
+      <strong>Spine export:</strong> one <code>clipping</code> attachment, placed immediately before the target region slot with <code>end</code> set to that slot. Only the bundled Spine ZIP contains the alpha-protected second image; raw geometry JSON by itself cannot suppress the connector pixels if you later apply a fully opaque texture. Existing JSON skeletons are retained, including bones, skins and animations.
       <p>For image-only input, save both JSON and image.png; put PNG in the Spine <code>images/</code> folder. For existing JSON, select the exact region PNG; a packed atlas sheet is not a region. Binary .spine requires conversion by a licensed Spine Editor and is not silently replaced by a new skeleton.</p>
     </div>
   </section>
