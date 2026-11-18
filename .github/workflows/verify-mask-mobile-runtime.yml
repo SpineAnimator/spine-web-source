@@ -1,0 +1,74 @@
+name: Spine Mask | official 4.3 runtime complexity regression
+on:
+  push:
+    branches: [main]
+    paths:
+      - Spine-Mask-Tool/core.js
+      - Spine-Mask-Tool/tools/mobile-spine-runtime-audit.mjs
+      - Spine-Mask-Tool/AI_AGENT_MOBILE_CLIPPING.md
+      - .github/workflows/verify-mask-mobile-runtime.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  synthetic-official-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Use matching official Spine Runtime (no private skeleton data)
+        run: |
+          npm install --no-save --no-audit --no-fund --silent '@esotericsoftware/spine-core@4.3.13'
+      - name: Validate offline 30-skeleton complexity audit on synthetic polygons
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/mobile-mask-audit"
+          export FIXTURE_DIR="$RUNNER_TEMP/mobile-mask-audit"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const out=process.env.FIXTURE_DIR;
+          // A toothed shape that exercises the runtime's concave polygon
+          // decomposition; these are NOT artist/user files.
+          function star(teeth,radOuter,radInner) {
+            return Array.from({length:teeth*2},(_,i)=>{
+              const a=-Math.PI/2 + Math.PI*i/teeth;
+              const r=i%2?radInner:radOuter;
+              return [Math.cos(a)*r,Math.sin(a)*r];
+            });
+          }
+          fs.writeFileSync(out+'/before.json',JSON.stringify({points:star(60,85,45)}));
+          fs.writeFileSync(out+'/after.json',JSON.stringify({points:star(10,85,45)}));
+          NODE
+          node Spine-Mask-Tool/tools/mobile-spine-runtime-audit.mjs \
+            --before "$FIXTURE_DIR/before.json" \
+            --after "$FIXTURE_DIR/after.json" \
+            --skeletons 30 --frames 3 > "$FIXTURE_DIR/result.json"
+          python3 - <<'PY'
+          import json,os
+          p=os.path.join(os.environ['FIXTURE_DIR'],'result.json')
+          r=json.load(open(p))
+          assert r['before']['vertices']==120
+          assert r['after']['vertices']==20
+          assert r['before']['convexPolygonsPerSkeleton']>r['after']['convexPolygonsPerSkeleton']
+          assert r['scene']['simulatedSkeletons']==30
+          assert r['after']['clippedTrianglesPerSyntheticRegion']>0
+          assert r['comparison']['convexPolygonsReductionPercent']>0
+          print('OFFICIAL_SPINE43_CLIPPING_QA_PASS',
+                {'verticesBefore':r['before']['vertices'],
+                 'verticesAfter':r['after']['vertices'],
+                 'convexBefore':r['before']['convexPolygonsPerSkeleton'],
+                 'convexAfter':r['after']['convexPolygonsPerSkeleton']})
+          PY
+      - name: Never publish or upload NDA geometry
+        shell: bash
+        run: |
+          set -euo pipefail
+          git status --porcelain
+          test -z "$(git status --porcelain)"
+          echo 'OFFLINE_ONLY_NO_ARTIFACT_UPLOAD_PASS'
