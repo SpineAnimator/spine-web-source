@@ -119,7 +119,7 @@ export function imageMask(image, options = {}) {
   // never a manual slider and never a guaranteed device-independent FPS.
   const simultaneous = Math.max(1, Math.min(120, Math.round(Number(options.concurrentSkeletons ?? 30) || 30)));
   const vertexBudget = Math.min(320, Math.max(80, Math.floor(7200 / simultaneous)));
-  const optimized = reduceContourVertices(polygon, visibleAlpha, holeSeeds, d, w, h, vertexBudget);
+  const optimized = reduceContourVertices(polygon, visibleAlpha, holeSeeds, d, w, h, vertexBudget, highlight.applied);
   if (!optimized.qualityPassed) {
     throw Error("Mobile clipping budget (" + vertexBudget +
       " vertices at " + simultaneous + " skeletons) cannot preserve light faces and holes safely.");
@@ -161,7 +161,7 @@ function contourPixels(points,w,h){
   }
   return out;
 }
-function optimizeMobilePolygon(base,visibleAlpha,holeSeeds,rgba,w,h,limit,darkWeight){
+function optimizeMobilePolygon(base,visibleAlpha,holeSeeds,rgba,w,h,limit,darkWeight,protectHighlights){
   const n=base.length,prev=new Int32Array(n),next=new Int32Array(n);
   const alive=new Uint8Array(n).fill(1),versions=new Uint32Array(n);
   for(let i=0;i<n;i++){prev[i]=(i+n-1)%n;next[i]=(i+1)%n;}
@@ -173,7 +173,7 @@ function optimizeMobilePolygon(base,visibleAlpha,holeSeeds,rgba,w,h,limit,darkWe
     const p=i*4;
     if(rgba[p+3]<=20)continue;
     isOpaque[i]=1;
-    if(.2126*rgba[p]+.7152*rgba[p+1]+.0722*rgba[p+2]<50)isDark[i]=1;
+    if(protectHighlights&&.2126*rgba[p]+.7152*rgba[p+1]+.0722*rgba[p+2]<50)isDark[i]=1;
   }
   const score=(i,covered)=>{
     if(covered){
@@ -281,14 +281,14 @@ function optimizeMobilePolygon(base,visibleAlpha,holeSeeds,rgba,w,h,limit,darkWe
   }
   return polygon;
 }
-function evaluateMobileMask(polygon,baseline,visibleAlpha,holeSeeds,rgba,w,h,budget){
+function evaluateMobileMask(polygon,baseline,visibleAlpha,holeSeeds,rgba,w,h,budget,protectHighlights){
   if(polygon.length>budget||polygon.length<3||intersects(polygon)||
      holeSeeds.some(t=>pointInPolygon(t%w+.5,Math.floor(t/w)+.5,polygon)))return null;
   const pixels=contourPixels(polygon,w,h);
   let darkTotal=0,dark=0,missing=0,extra=0,drift=0,lightTotal=0;
   for(let i=0;i<w*h;i++){
     const p=i*4,opaque=rgba[p+3]>20,highlight=visibleAlpha[i]>0;
-    const low=opaque&&(.2126*rgba[p]+.7152*rgba[p+1]+.0722*rgba[p+2]<50);
+    const low=protectHighlights&&opaque&&(.2126*rgba[p]+.7152*rgba[p+1]+.0722*rgba[p+2]<50);
     if(low)darkTotal++;
     if(highlight){lightTotal++;if(!pixels[i])missing++;}
     if(pixels[i]&&low)dark++;
@@ -302,11 +302,11 @@ function evaluateMobileMask(polygon,baseline,visibleAlpha,holeSeeds,rgba,w,h,bud
   return {points:polygon,dark,missing,drift,darkPercent:+darkPct.toFixed(2),
     missingPercent:+missingPct.toFixed(2),holesPreserved:true};
 }
-function reduceContourVertices(base,alpha,holeSeeds,rgba,w,h,budget){
+function reduceContourVertices(base,alpha,holeSeeds,rgba,w,h,budget,protectHighlights){
   const before=base.length;
   const initial=contourPixels(base,w,h);
   if(before<=budget){
-    const accepted=evaluateMobileMask(base,initial,alpha,holeSeeds,rgba,w,h,budget);
+    const accepted=evaluateMobileMask(base,initial,alpha,holeSeeds,rgba,w,h,budget,protectHighlights);
     return {points:base,before,drift:0,dark:accepted?.dark??0,
       darkPercent:accepted?.darkPercent??0,missing:accepted?.missing??0,
       missingPercent:accepted?.missingPercent??0,holesPreserved:!!accepted,
@@ -316,9 +316,9 @@ function reduceContourVertices(base,alpha,holeSeeds,rgba,w,h,budget){
   // face, moderate for including other opaque pixels, negligible outside alpha.
   // Try progressively stricter shadow penalties only when a candidate fails
   // the automatic visual-quality gate.
-  for(const darkWeight of [80,120,200]){
-    const candidate=optimizeMobilePolygon(base,alpha,holeSeeds,rgba,w,h,budget,darkWeight);
-    const evaluation=evaluateMobileMask(candidate,initial,alpha,holeSeeds,rgba,w,h,budget);
+  for(const darkWeight of (protectHighlights?[80,120,200]:[0])){
+    const candidate=optimizeMobilePolygon(base,alpha,holeSeeds,rgba,w,h,budget,darkWeight,protectHighlights);
+    const evaluation=evaluateMobileMask(candidate,initial,alpha,holeSeeds,rgba,w,h,budget,protectHighlights);
     if(evaluation)return {...evaluation,before,accepted:true,qualityPassed:true};
   }
   return {points:base,before,drift:0,dark:0,darkPercent:0,missing:0,
