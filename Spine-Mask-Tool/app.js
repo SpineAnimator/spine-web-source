@@ -300,7 +300,10 @@ async function generate() {
     status("Mask failed validation: " + e.message, true);
   } finally { $("generate").disabled = false; }
 }
-filesInput.addEventListener("change", e => {void importProjectFiles(e.target.files);});
+filesInput.addEventListener("change", e => {
+  const selected=Array.from(e.target.files||[]);
+  void importProjectFiles(selected,selected.some(file=>/\.(zip|spine|skel|json)$/i.test(file.name)));
+});
 $("open-project").addEventListener("click",()=> $("project-files").click());
 $("open-folder").addEventListener("click",()=> $("project-folder").click());
 $("open-editor").addEventListener("click",()=> void connectEditor(false));
@@ -584,7 +587,10 @@ async function readBridgeFile(session,item){
   return new File(parts,item.name,{type:imageFileMime(item.name)});
 }
 async function connectEditor(auto=false){
-  if(connectEditor.busy)return;
+  if(connectEditor.busy){
+    if(!auto){connectEditor.manualQueued=true;bridgeStatus("Completing initial bridge check; import will start automatically…");}
+    return;
+  }
   connectEditor.busy=true;
   bridgeStatus("Connecting to locally installed Spine Editor…");
   try{
@@ -613,7 +619,13 @@ async function connectEditor(auto=false){
   }catch(error){
     if(!auto){bridgeStatus("Bridge unavailable: "+error.message+" · Install Bridge or open exported JSON + images.",true);$("bridge-setup").open=true;}
     else bridgeStatus("Chrome Native Messaging bridge not connected. Upload files normally.");
-  }finally{connectEditor.busy=false;}
+  }finally{
+    connectEditor.busy=false;
+    if(connectEditor.manualQueued){
+      connectEditor.manualQueued=false;
+      void connectEditor(false);
+    }
+  }
 }
 function queueBridgeWrite(){
   const epoch=++bridgeWriteEpoch;
