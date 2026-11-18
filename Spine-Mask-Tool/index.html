@@ -113,6 +113,35 @@ footer { min-height:32px; padding:4px 32px 10px; color:var(--muted); font-size:1
  .actions { flex-wrap:wrap; }
  .actions button,.actions #generate,.actions #reset { flex:1 1 calc(50% - 4px); }
 }
+
+/* Quick artist mode hides controls visually; Agent mode retains every existing DOM ID. */
+.mode-toggle { flex:0 0 auto; min-height:38px; padding:6px 14px; color:#d3d3d3; }
+.quick-action { grid-area:quick; display:flex; flex-direction:column; gap:8px; align-items:stretch; width:100%; max-width:640px; justify-self:center; }
+.quick-action #do-all { min-height:60px; font-size:18px; font-weight:600; }
+.quick-hint { margin:0; color:var(--muted); font-size:12px; text-align:center; line-height:1.5; }
+body:not(.agent-mode) .app-shell {
+  max-width:1100px; margin:0 auto;
+  grid-template-rows:44px minmax(0,1fr) auto auto;
+  grid-template-areas:"header" "panels" "quick" "status";
+}
+body:not(.agent-mode) .chips,
+body:not(.agent-mode) .fields,
+body:not(.agent-mode) .control-panel,
+body:not(.agent-mode) .file-zone,
+body:not(.agent-mode) .preview-head,
+body:not(.agent-mode) .actions { display:none!important; }
+body:not(.agent-mode) .panels { grid-template-columns:minmax(0,1fr); }
+body:not(.agent-mode) .preview-panel { border:1px solid var(--border); }
+body.agent-mode .quick-action { display:none!important; }
+@media (max-width:900px) {
+  body:not(.agent-mode) .app-shell { min-height:100dvh; grid-template-rows:auto minmax(350px,1fr) auto auto; }
+  body:not(.agent-mode) .preview-panel { min-height:350px; }
+}
+@media (max-width:540px) {
+  .mode-toggle { min-height:36px; padding:6px 10px; }
+  body:not(.agent-mode) .app-shell { grid-template-rows:auto minmax(260px,1fr) auto auto; }
+  body:not(.agent-mode) .preview-panel { min-height:260px; }
+}
 </style>
 </head>
 <body>
@@ -120,6 +149,7 @@ footer { min-height:32px; padding:4px 32px 10px; color:var(--muted); font-size:1
   <header class="toolbar">
     <h1>Spine Mask Tool</h1>
     <span class="version">4.3 · Single clip</span>
+    <button id="agent-toggle" class="mode-toggle" type="button" aria-controls="agent-controls" aria-expanded="false">Agents</button>
     <div class="chips">
       <label class="chip"><input id="highlight-edges" type="checkbox" checked data-agent-control="highlight-edges" aria-label="Use light-text edge and ignore dark shadows"><span>Light edges</span></label>
       <label class="chip"><input id="show-points" type="checkbox" aria-label="Show mask vertices"><span>Vertices</span></label>
@@ -146,7 +176,7 @@ footer { min-height:32px; padding:4px 32px 10px; color:var(--muted); font-size:1
         <span class="summary" id="summary">No mask generated.</span>
       </div>
     </section>
-    <section class="control-panel" aria-label="Mask settings and native preview">
+    <section id="agent-controls" class="control-panel" aria-label="Mask settings and native preview">
       <div class="panel-title">Project <span>One clipping mask</span></div>
       <div id="target-row" hidden>
         <label class="field" for="target">Target region in skeleton</label>
@@ -194,6 +224,10 @@ footer { min-height:32px; padding:4px 32px 10px; color:var(--muted); font-size:1
       </details>
     </section>
   </div>
+  <div class="quick-action">
+    <button id="do-all" class="primary" type="button">Make all</button>
+    <p class="quick-hint">Open a Spine project or ZIP → create one clipping mask → download the complete project ZIP.</p>
+  </div>
   <div class="actions">
     <button id="generate" class="primary" type="button">Generate mask</button>
     <button id="reset" type="button">Reset</button>
@@ -204,6 +238,6 @@ footer { min-height:32px; padding:4px 32px 10px; color:var(--muted); font-size:1
   <div class="status-line"><p id="status" class="status" role="status" aria-live="polite"></p></div>
 </main>
 <footer>Local processing · Spine 4.3.26 · <a href="https://esotericsoftware.com/spine-clipping" rel="noopener" target="_blank">Spine clipping documentation</a></footer>
-<script type="module" src="./app.js?v=1c15b137"></script>
+<script type="module" src="./app.js?v=oneclick-20261118"></script>
 </body>
 </html>
