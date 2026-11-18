@@ -53,6 +53,78 @@ async function decode(file) {
     img.src = url;
   });
 }
+
+// Import ordinary project files or a ZIP without sending source bytes anywhere.
+// ZIP entries are validated from the central directory before decompression.
+async function unpackSpineZip(file) {
+  const maxArchive=128*1024*1024, maxFiles=240, maxEntry=32*1024*1024;
+  if(file.size>maxArchive) throw Error("ZIP exceeds 128 MB. Open its folder instead.");
+  const buf=new Uint8Array(await file.arrayBuffer()), dv=new DataView(buf.buffer);
+  const get16=p=>dv.getUint16(p,true),get32=p=>dv.getUint32(p,true);
+  let end=-1;
+  for(let p=buf.length-22;p>=Math.max(0,buf.length-65557);p--){
+    if(get32(p)===0x06054b50 && p+22+get16(p+20)<=buf.length){end=p;break;}
+  }
+  if(end<0)throw Error("ZIP central directory not found.");
+  const count=get16(end+10), directorySize=get32(end+12);
+  let cursor=get32(end+16);
+  if(count>maxFiles||cursor+directorySize>buf.length||get16(end+8)!==count)
+    throw Error("ZIP is too large or uses an unsupported directory format.");
+  const files=[];let uncompressedTotal=0;
+  const supported=/\.(json|spine|skel|atlas|png|webp|jpe?g)$/i;
+  for(let i=0;i<count;i++){
+    if(cursor+46>buf.length||get32(cursor)!==0x02014b50)throw Error("Invalid ZIP entry header.");
+    const flags=get16(cursor+8),method=get16(cursor+10),crc=get32(cursor+16);
+    const compressed=get32(cursor+20),size=get32(cursor+24);
+    const nameLength=get16(cursor+28),extra=get16(cursor+30),comment=get16(cursor+32);
+    const local=get32(cursor+42),nameEnd=cursor+46+nameLength;
+    if(nameEnd+extra+comment>buf.length)throw Error("Truncated ZIP directory.");
+    const entryName=new TextDecoder().decode(buf.subarray(cursor+46,nameEnd)).replace(/\\/g,"/");
+    cursor=nameEnd+extra+comment;
+    if(entryName.endsWith("/")||entryName.startsWith("__MACOSX/")||!supported.test(entryName))continue;
+    if(entryName.startsWith("/")||entryName.split("/").some(part=>part===".."||part==="."))throw Error("Unsafe ZIP entry path.");
+    if(flags&1||![0,8].includes(method))throw Error("Encrypted or unsupported ZIP compression.");
+    if(size>maxEntry||compressed>maxEntry||size+uncompressedTotal>maxArchive)
+      throw Error("ZIP contains a file larger than the local import limit.");
+    if(local+30>buf.length||get32(local)!==0x04034b50)throw Error("Invalid ZIP local header.");
+    const start=local+30+get16(local+26)+get16(local+28);
+    if(start+compressed>buf.length)throw Error("Truncated ZIP member.");
+    const body=buf.slice(start,start+compressed);
+    let decoded;
+    if(method===0)decoded=body;
+    else{
+      if(typeof DecompressionStream!=="function")
+        throw Error("This browser cannot unpack ZIP. Choose an extracted folder.");
+      try{
+        const stream=new Blob([body]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+        decoded=new Uint8Array(await new Response(stream).arrayBuffer());
+      }catch(e){throw Error("Unable to expand ZIP member "+entryName+": "+e.message);}
+    }
+    if(decoded.length!==size||crc32(decoded)!==crc)
+      throw Error("ZIP verification failed for "+entryName);
+    uncompressedTotal+=size;
+    const name=entryName.split("/").at(-1);
+    const mime=/\.png$/i.test(name)?"image/png":/\.webp$/i.test(name)?"image/webp":/\.jpe?g$/i.test(name)?"image/jpeg":"application/octet-stream";
+    files.push(new File([decoded],name,{type:mime,lastModified:file.lastModified}));
+  }
+  if(!files.length)throw Error("ZIP has no Spine skeleton or region images.");
+  return files;
+}
+async function importProjectFiles(fileList, replace=false) {
+  const selected=Array.from(fileList||[]);
+  if(!selected.length)return;
+  try{
+    const imported=[];
+    for(const file of selected){
+      if(/\.zip$/i.test(file.name))imported.push(...await unpackSpineZip(file));
+      else imported.push(file);
+    }
+    if(replace)$("reset").click();
+    await addFiles(imported);
+    if(state.binary&&!state.json)$("bridge-setup").open=true;
+  }catch(error){status("Project import: "+error.message,true);}
+}
+
 async function addFiles(fileList, fromBridge = false) {
   if (!fromBridge) state.bridge = null;
   clearResult();
@@ -61,12 +133,14 @@ async function addFiles(fileList, fromBridge = false) {
     for (const file of files) {
       if (/\.json$/i.test(file.name)) {
         const obj = JSON.parse(await file.text());
-        if (!Array.isArray(obj.slots) || !obj.skins) throw Error("JSON is not a Spine skeleton: " + file.name);
+        if (!Array.isArray(obj.slots) || !obj.skins) continue; // ignore archive metadata JSON, not a skeleton
         state.json = obj; state.binary = null;
         state.base = basename(file.name);
-      } else if (/\.spine$/i.test(file.name)) {
-        state.binary = file;
-        state.json = null; state.base = basename(file.name);
+      } else if (/\.(spine|skel)$/i.test(file.name)) {
+        if (!state.json) {
+          state.binary = file;
+          state.base = basename(file.name);
+        }
       } else if (file.type.startsWith("image/") || /\.(png|jpe?g|webp)$/i.test(file.name)) {
         const image = await decode(file);
         state.images = state.images.filter(x => x.file.name !== file.name);
@@ -78,10 +152,10 @@ async function addFiles(fileList, fromBridge = false) {
     }
     setTargets();
     selectSource();
-    if (state.binary && !state.json) status("Binary .spine received. Native conversion is required first; the browser will not invent a replacement skeleton.", true);
+    if (state.binary && !state.json) status("Binary .spine / .skel needs conversion. Import from Spine Editor using the Bridge, or supply its exported JSON with region PNGs.", true);
     else if (state.json) status("Spine JSON loaded. Select a region and generate its clipping mask.");
     else if (state.images.length) status("Image loaded. A new Spine 4.3 skeleton with one clipping attachment will be created.");
-    else status("Drop an image PNG, or a Spine JSON with the region image.");
+    else status("No Spine JSON or region image found. Select a project ZIP, folder or exported Spine JSON with images.", true);
     if(state.source && !state.binary && (!state.json||selectedRegion())) await generate();
   } catch (e) { status(e.message, true); }
 }
@@ -226,7 +300,12 @@ async function generate() {
     status("Mask failed validation: " + e.message, true);
   } finally { $("generate").disabled = false; }
 }
-filesInput.addEventListener("change", e => addFiles(e.target.files));
+filesInput.addEventListener("change", e => {void importProjectFiles(e.target.files);});
+$("open-project").addEventListener("click",()=> $("project-files").click());
+$("open-folder").addEventListener("click",()=> $("project-folder").click());
+$("open-editor").addEventListener("click",()=> void connectEditor(false));
+$("project-files").addEventListener("change",e=>{void importProjectFiles(e.target.files,true);});
+$("project-folder").addEventListener("change",e=>{void importProjectFiles(e.target.files,true);});
 targetInput.addEventListener("change", () => {selectSource();if(state.source)generate();});
 $("image-source").addEventListener("change", () => {selectSource(true);if(state.source)generate();});
 $("generate").addEventListener("click", generate);
@@ -274,6 +353,7 @@ $("reset").addEventListener("click", () => {
   state.images = []; state.json = null; state.binary = null; state.source = null;
   state.bridge = null;
   state.sourceFile = null; state.choices = []; filesInput.value = "";
+  $("project-files").value=""; $("project-folder").value="";
   targetInput.replaceChildren(); $("target-row").hidden = true;
   $("image-source").replaceChildren(); $("image-row").hidden = true;
   $("source-name").textContent = "No image supplied";
@@ -281,7 +361,7 @@ $("reset").addEventListener("click", () => {
   $("native-fill").value="";
   ctx.clearRect(0, 0, canvas.width, canvas.height); clearResult();
   
-status("Drop a Spine JSON and its images, or just one PNG.");
+status("Open a Spine project ZIP, folder or JSON + images. For a live .spine project use Import from Spine Editor.");
 });
 for (const evt of ["dragenter","dragover"]) document.addEventListener(evt, e => {
   e.preventDefault(); document.body.classList.add("dragging");
@@ -289,7 +369,8 @@ for (const evt of ["dragenter","dragover"]) document.addEventListener(evt, e => 
 document.addEventListener("dragleave", e => { if (!e.relatedTarget) document.body.classList.remove("dragging"); });
 document.addEventListener("drop", e => {
   e.preventDefault(); document.body.classList.remove("dragging");
-  if (e.dataTransfer?.files.length) addFiles(e.dataTransfer.files);
+  if (e.dataTransfer?.files.length) void importProjectFiles(e.dataTransfer.files,
+    Array.from(e.dataTransfer.files).some(file=>/\.(zip|spine|skel|json)$/i.test(file.name)));
 });
 // Upload only selected clipping vertices and the user-authorized replacement
 // texture, never the source artwork itself. The gateway erases data after a
@@ -507,7 +588,7 @@ async function connectEditor(auto=false){
   connectEditor.busy=true;
   bridgeStatus("Connecting to locally installed Spine Editor…");
   try{
-    const ping=await requestBridge("ping",{},auto?3200:12000);
+    const ping=await requestBridge("ping",{},auto?3200:6000);
     if(ping?.protocol!=="spinemask/1")throw Error("Outdated Chrome native bridge.");
     const opened=await requestBridge("open_project",{},210000);
     if(!opened?.open){
@@ -530,7 +611,7 @@ async function connectEditor(auto=false){
     if(!state.source||!state.result)
       bridgeStatus("Project loaded; select an exact image attachment to complete the mask.",true);
   }catch(error){
-    if(!auto)bridgeStatus("Local editor: "+error.message,true);
+    if(!auto){bridgeStatus("Bridge unavailable: "+error.message+" · Install Bridge or open exported JSON + images.",true);$("bridge-setup").open=true;}
     else bridgeStatus("Chrome Native Messaging bridge not connected. Upload files normally.");
   }finally{connectEditor.busy=false;}
 }
