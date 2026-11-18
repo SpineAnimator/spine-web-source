@@ -79,6 +79,7 @@ async function addFiles(fileList) {
     else if (state.json) status("Spine JSON loaded. Select a region and generate its clipping mask.");
     else if (state.images.length) status("Image loaded. A new Spine 4.3 skeleton with one clipping attachment will be created.");
     else status("Drop an image PNG, or a Spine JSON with the region image.");
+    if(state.source && !state.binary && (!state.json||selectedRegion())) await generate();
   } catch (e) { status(e.message, true); }
 }
 function selectSource(fromPicker = false) {
@@ -191,11 +192,7 @@ async function generate() {
     const wc = work.getContext("2d", { willReadFrequently: true });
     wc.clearRect(0, 0, aw, ah);
     wc.drawImage(state.source, 0, 0, aw, ah);
-    const settings = {
-      alpha: Number($("alpha").value), tolerance: Number($("tolerance").value),
-      simplify: Number($("smooth").value), bridgeWidth: Number($("bridge").value),
-      minArea: Number($("area").value)
-    };
+    const settings = { highlightFaces: $("highlight-edges").checked };
     const mask = imageMask(wc.getImageData(0,0,aw,ah), settings);
     if (mask.points.length < 3) throw Error("Clipping polygon must have at least 3 vertices.");
     const selected = selectedRegion();
@@ -209,9 +206,12 @@ async function generate() {
     $("download-png").hidden = !!state.json;
     const s = mask.stats;
     $("summary").textContent = "ONE CLIPPING MASK · " + s.vertices + " vertices · " +
-      s.shapes + " parts · " + s.bridges + " bridges · " + s.slits + " inner passages";
-    if (s.vertices > 700) status("Mask generated. High vertex count may impact Spine runtime performance.");
-    else status("Mask generated. JSON is ready.");
+      (s.highlightApplied ? "Light faces only" : "Full silhouette") + " · Invisible connectors";
+    const profile = s.highlightRequested
+      ? (s.highlightApplied ? "Automatic light-face edges; dark shadows excluded."
+         : "Light-edge mode used standard silhouette fallback (" + s.highlightReason + ").")
+      : "Full silhouette edge mode.";
+    status(profile + (s.vertices>700 ? " High vertex count may impact Spine." : " JSON and ZIP are ready."));
   } catch (e) {
     state.result = null;
     $("download-json").disabled = true;
@@ -219,9 +219,29 @@ async function generate() {
   } finally { $("generate").disabled = false; }
 }
 filesInput.addEventListener("change", e => addFiles(e.target.files));
-targetInput.addEventListener("change", () => selectSource());
-$("image-source").addEventListener("change", () => selectSource(true));
+targetInput.addEventListener("change", () => {selectSource();if(state.source)generate();});
+$("image-source").addEventListener("change", () => {selectSource(true);if(state.source)generate();});
 $("generate").addEventListener("click", generate);
+$("highlight-edges").addEventListener("change", () => {
+  if(state.source&&(!state.json||selectedRegion()))generate();
+});
+// Stable agent interface. No image data is exposed here or transmitted.
+Object.defineProperty(window,"SpineMaskAgentControl",{
+  value:Object.freeze({
+    getHighlightEdges:()=>$("highlight-edges").checked,
+    setHighlightEdges:enabled=>{
+      const checkbox=$("highlight-edges");
+      checkbox.checked=!!enabled;
+      checkbox.dispatchEvent(new Event("change",{bubbles:true}));
+      return checkbox.checked;
+    },
+    generate:()=>generate(),
+    getStatus:()=>({ready:!!state.result,mode:$("highlight-edges").checked?"light-faces":"silhouette",
+      result:state.result?{vertices:state.result.mask.stats.vertices,
+        highlightApplied:state.result.mask.stats.highlightApplied}:null})
+  }),
+  writable:false,configurable:false
+});
 $("show-points").addEventListener("change", () => showPreview(state.result?.mask));
 $("download-json").addEventListener("click", () => {
   if (!state.result) return;
