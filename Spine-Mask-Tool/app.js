@@ -1,4 +1,4 @@
-import { imageMask, availableRegions, exportJson, exportLocalEditorMask, maskVertices } from "./core.js";
+import { imageMask, availableRegions, exportJson, exportLocalEditorMask, maskVertices } from "./core.js?v=5c178a39";
 
 const $ = id => document.getElementById(id);
 const filesInput = $("files"), targetInput = $("target"), canvas = $("preview");
