@@ -23,3 +23,11 @@ generic code-generation shortcuts.
   desktop CPU tests and actual 30-skeleton mobile **runtime** tests.
 - Never claim visual approval or mobile FPS performance without the matching
   evidence. Fail closed on missing or ambiguous evidence.
+- Run the official offline clipping audit at
+  `tools/mobile-spine-runtime-audit.mjs` with
+  `@esotericsoftware/spine-core@4.3.13`. Measure convex-part counts,
+  real `SkeletonClipping.clipTriangles` results for a representative region,
+  and a 30-instance desktop JavaScript CPU probe; explicitly mark it as
+  **not** a mobile benchmark. Keep all input geometry and files local.
+  The CI regression in `.github/workflows/verify-mask-mobile-runtime.yml`
+  uses synthetic polygons exclusively.
