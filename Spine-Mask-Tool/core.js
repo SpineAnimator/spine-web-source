@@ -583,6 +583,9 @@ function updateExistingMask(data, targetName, vertices, vertexCount) {
   if (generated.length !== 1)
     throw Error("Multiple generated masks already exist; choose an original project.");
   const slot = generated[0];
+  const expectedBase = "auto_mask_" + targetName.replace(/[^a-zA-Z0-9_]/g, "_");
+  if (slot.name !== expectedBase && !slot.name.startsWith(expectedBase + "_"))
+    throw Error("Existing mask belongs to another Spine target.");
   const targetIndex = slots.findIndex(entry => entry.name === targetName);
   if (targetIndex < 1 || slots[targetIndex - 1]?.name !== slot.name || slot.attachment !== "clip")
     throw Error("Existing mask belongs to another target or has an unsafe draw order.");
@@ -592,8 +595,12 @@ function updateExistingMask(data, targetName, vertices, vertexCount) {
   for (const skin of skins) {
     const clip = skin.attachments?.[slot.name]?.clip;
     if (!clip) continue;
-    if (clip.type !== "clipping" || clip.end !== targetName)
-      throw Error("Existing clipping mask ends at the wrong Spine slot.");
+    if (clip.type !== "clipping")
+      throw Error("Generated attachment is not a Spine clipping mask.");
+    // Old exports sometimes ended on a later hotspot slot. Limit this
+    // tool-owned clip to the original target, preserving the independent
+    // hotspot attachment and all subsequent draw-order / animation keys.
+    clip.end = targetName;
     clip.vertices = vertices.slice();
     clip.vertexCount = vertexCount;
     count++;
