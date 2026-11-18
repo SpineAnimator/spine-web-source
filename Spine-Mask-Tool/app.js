@@ -13,6 +13,7 @@ function clearResult() {
   $("download-json").disabled = true;
   $("download-png").hidden = true;
   $("native-preview").disabled = true;
+  $("download-spine-zip").disabled = true;
   $("native-result").hidden = true;
   $("native-status").textContent = "";
   if (state.nativeAbort) state.nativeAbort.abort();
@@ -204,6 +205,7 @@ async function generate() {
     showPreview(mask);
     $("download-json").disabled = false;
     $("native-preview").disabled = false;
+    $("download-spine-zip").disabled = false;
     $("download-png").hidden = !!state.json;
     const s = mask.stats;
     $("summary").textContent = "ONE CLIPPING MASK · " + s.vertices + " vertices · " +
@@ -289,6 +291,42 @@ function nativeStatus(text,error=false){
   $("native-status").textContent=text;
   $("native-status").dataset.error=error?"yes":"no";
 }
+// The ZIP is self-contained: one Spine clip and a fill texture with alpha
+// equal to the ORIGINAL silhouette. Rendering the included fill never shows
+// connector pixels, even when the clip must remain one contiguous polygon.
+async function buildInvisibleBridgePackage(){
+  if(!state.result||!state.source)throw Error("Generate a mask first.");
+  const mask=state.result.mask;
+  if(mask.points.length>2500)throw Error("Native Spine limit: 2500 clip vertices.");
+  const sw=state.source.width,sh=state.source.height;
+  const ratio=Math.min(1,512/Math.max(sw,sh));
+  const w=Math.max(1,Math.round(sw*ratio)),h=Math.max(1,Math.round(sh*ratio));
+  const scaled=mask.points.map(([x,y])=>[x*w/mask.analysisWidth,y*h/mask.analysisHeight]);
+  const vertices=maskVertices(scaled,w,h,{width:w,height:h});
+  const scene={
+    skeleton:{spine:"4.3.26",x:-w/2,y:-h/2,width:w,height:h,images:"./images/"},
+    bones:[{name:"root"}],
+    slots:[{name:"mask",bone:"root",attachment:"clip"},{name:"fill",bone:"root",attachment:"fill"}],
+    skins:[{name:"default",attachments:{
+      mask:{clip:{type:"clipping",end:"fill",vertexCount:scaled.length,vertices}},
+      fill:{fill:{type:"region",path:"fill",width:w,height:h}}
+    }}],
+    animations:{"mask-preview":{bones:{root:{translate:[{time:0,x:0,y:0},{time:.1,x:0,y:0}]}}}}
+  };
+  const secondary=$("native-fill").files?.[0];
+  let sourceFill=state.fillImage;
+  if(secondary&&!sourceFill)sourceFill=await decode(secondary);
+  const c=createMaskedTexture(mask,w,h,sourceFill);
+  if(sourceFill!==state.fillImage)sourceFill?.close?.();
+  const png=await new Promise((resolve,reject)=>c.toBlob(b=>b?resolve(b):reject(Error("Could not encode replacement image.")),"image/png"));
+  const zip=zipMemory([
+    ["scene.json",bytes(JSON.stringify(scene))],
+    ["images/fill.png",new Uint8Array(await png.arrayBuffer())]
+  ]);
+  if(zip.length>1048576)throw Error("Native request exceeds the 1 MB private upload limit.");
+  return zip;
+}
+
 async function nativeRender(){
   if(!state.result||!state.source)return;
   const mask=state.result.mask;
@@ -302,32 +340,7 @@ async function nativeRender(){
   state.nativeAbort=controller;
   const signal=controller.signal;
   try{
-    const sw=state.source.width,sh=state.source.height;
-    const ratio=Math.min(1,512/Math.max(sw,sh));
-    const w=Math.max(1,Math.round(sw*ratio)),h=Math.max(1,Math.round(sh*ratio));
-    const scaled=mask.points.map(([x,y])=>[x*w/mask.analysisWidth,y*h/mask.analysisHeight]);
-    const vertices=maskVertices(scaled,w,h,{width:w,height:h});
-    const scene={
-      skeleton:{spine:"4.3.26",x:-w/2,y:-h/2,width:w,height:h,images:"./images/"},
-      bones:[{name:"root"}],
-      slots:[{name:"mask",bone:"root",attachment:"clip"},{name:"fill",bone:"root",attachment:"fill"}],
-      skins:[{name:"default",attachments:{
-        mask:{clip:{type:"clipping",end:"fill",vertexCount:scaled.length,vertices}},
-        fill:{fill:{type:"region",path:"fill",width:w,height:h}}
-      }}],
-      animations:{"mask-preview":{bones:{root:{translate:[{time:0,x:0,y:0},{time:.1,x:0,y:0}]}}}}
-    };
-    const secondary=$("native-fill").files?.[0];
-    let sourceFill=state.fillImage;
-    if(secondary&&!sourceFill)sourceFill=await decode(secondary);
-    const c=createMaskedTexture(mask,w,h,sourceFill);
-    if(sourceFill!==state.fillImage)sourceFill?.close?.();
-    const png=await new Promise((resolve,reject)=>c.toBlob(b=>b?resolve(b):reject(Error("Could not encode replacement image.")),"image/png"));
-    const zip=zipMemory([
-      ["scene.json",bytes(JSON.stringify(scene))],
-      ["images/fill.png",new Uint8Array(await png.arrayBuffer())]
-    ]);
-    if(zip.length>1048576)throw Error("Native request exceeds the 1 MB private upload limit.");
+    const zip=await buildInvisibleBridgePackage();
     nativeStatus("Uploading encrypted-in-transit mask geometry to private gateway…");
     const sessionResponse=await fetch(NATIVE_GATEWAY+"/v1/sessions",{method:"POST",signal});
     if(!sessionResponse.ok)throw Error("Private gateway could not open a session (HTTP "+sessionResponse.status+").");
@@ -372,6 +385,16 @@ $("native-fill").addEventListener("change",async()=>{
     if(file)state.fillImage=await decode(file);
     if(state.result)showPreview(state.result.mask);
   }catch(e){nativeStatus("Unable to read second image: "+e.message,true);}
+});
+$("download-spine-zip").addEventListener("click",async()=>{
+  if(!state.result)return;
+  const button=$("download-spine-zip");
+  button.disabled=true;
+  try{
+    const zip=await buildInvisibleBridgePackage();
+    downloadBlob(new Blob([zip],{type:"application/zip"}),(state.base||"mask")+"-bridgeless-spine.zip");
+  }catch(e){nativeStatus("Spine ZIP: "+e.message,true);}
+  finally{button.disabled=!state.result;}
 });
 $("native-preview").addEventListener("click",nativeRender);
 $("native-download").addEventListener("click",()=>{
