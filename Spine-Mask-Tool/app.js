@@ -210,6 +210,16 @@ $("reset").addEventListener("click", () => {
   $("source-name").textContent = "No image supplied";
   ctx.clearRect(0, 0, canvas.width, canvas.height); clearResult();
   
+status("Drop a Spine JSON and its images, or just one PNG.");
+});
+for (const evt of ["dragenter","dragover"]) document.addEventListener(evt, e => {
+  e.preventDefault(); document.body.classList.add("dragging");
+});
+document.addEventListener("dragleave", e => { if (!e.relatedTarget) document.body.classList.remove("dragging"); });
+document.addEventListener("drop", e => {
+  e.preventDefault(); document.body.classList.remove("dragging");
+  if (e.dataTransfer?.files.length) addFiles(e.dataTransfer.files);
+});
 // Upload only selected clipping vertices and the user-authorized replacement
 // texture, never the source artwork itself. The gateway erases data after a
 // successful result retrieval, or when its short retention expires.
@@ -334,14 +344,5 @@ $("native-download").addEventListener("click",()=>{
   document.body.append(a);a.click();a.remove();
 });
 
-status("Drop a Spine JSON and its images, or just one PNG.");
-});
-for (const evt of ["dragenter","dragover"]) document.addEventListener(evt, e => {
-  e.preventDefault(); document.body.classList.add("dragging");
-});
-document.addEventListener("dragleave", e => { if (!e.relatedTarget) document.body.classList.remove("dragging"); });
-document.addEventListener("drop", e => {
-  e.preventDefault(); document.body.classList.remove("dragging");
-  if (e.dataTransfer?.files.length) addFiles(e.dataTransfer.files);
-});
+
 status("Drop a Spine JSON and its images, or just one PNG.");
