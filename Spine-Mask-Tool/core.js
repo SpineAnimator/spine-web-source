@@ -572,6 +572,35 @@ export function maskVertices(points, sourceW, sourceH, region = {}) {
   return out;
 }
 const round = n => Math.round(n * 10000) / 10000;
+
+// Re-running a mask on an already processed Spine project must update its
+// existing clipping attachment rather than adding another slot. The native
+// host accepts exactly one non-overlay clipping mask per project.
+function updateExistingMask(data, targetName, vertices, vertexCount) {
+  const slots = data.slots || [];
+  const generated = slots.filter(slot => slot.name?.startsWith("auto_mask_"));
+  if (!generated.length) return null;
+  if (generated.length !== 1)
+    throw Error("Multiple generated masks already exist; choose an original project.");
+  const slot = generated[0];
+  const targetIndex = slots.findIndex(entry => entry.name === targetName);
+  if (targetIndex < 1 || slots[targetIndex - 1]?.name !== slot.name || slot.attachment !== "clip")
+    throw Error("Existing mask belongs to another target or has an unsafe draw order.");
+  const skins = Array.isArray(data.skins) ? data.skins :
+    Object.entries(data.skins || {}).map(([name,attachments])=>({name,attachments}));
+  let count = 0;
+  for (const skin of skins) {
+    const clip = skin.attachments?.[slot.name]?.clip;
+    if (!clip) continue;
+    if (clip.type !== "clipping" || clip.end !== targetName)
+      throw Error("Existing clipping mask ends at the wrong Spine slot.");
+    clip.vertices = vertices.slice();
+    clip.vertexCount = vertexCount;
+    count++;
+  }
+  if (!count) throw Error("Existing clipping attachment is missing from skins.");
+  return slot.name;
+}
 export function exportJson(original, target, points, sourceW, sourceH) {
   const data = original ? JSON.parse(JSON.stringify(original)) : {
     skeleton: { spine: "4.3.26", x: -sourceW / 2, y: -sourceH / 2, width: sourceW, height: sourceH, images: "./images/" },
@@ -590,6 +619,8 @@ export function exportJson(original, target, points, sourceW, sourceH) {
   let name = base, suffix = 1;
   while (data.slots.some(s => s.name === name)) name = base + "_" + (suffix++);
   const values = maskVertices(points, sourceW, sourceH, selected.data);
+  const existing = updateExistingMask(data, selected.slot, values, points.length);
+  if (existing) return { json:data, slot:existing };
   data.slots.splice(ix, 0, { name, bone: slot.bone, attachment: "clip" });
   const clip = { type: "clipping", end: selected.slot, vertexCount: points.length,
     vertices: values, color: "ff9911ff" };
@@ -623,11 +654,14 @@ export function exportLocalEditorMask(original,target,points,sourceW,sourceH) {
   const index=json.slots?.findIndex(s=>s.name===target.slot);
   if(index===undefined||index<0)throw Error("Target Spine slot not found.");
   const originalSlot=json.slots[index];
+  const vertices=maskVertices(points,sourceW,sourceH,target.data);
+  const existing=updateExistingMask(json,target.slot,vertices,points.length);
+  if(existing) return {json,clippingSlot:existing,targetSlot:target.slot};
   const base="auto_mask_"+target.slot.replace(/[^a-zA-Z0-9_]/g,"_");
   let clippingSlot=base,n=2;
   while(json.slots.some(s=>s.name===clippingSlot))clippingSlot=base+"_"+n++;
   const clip={type:"clipping",end:target.slot,vertexCount:points.length,
-    vertices:maskVertices(points,sourceW,sourceH,target.data)};
+    vertices};
   json.slots.splice(index,0,{name:clippingSlot,bone:originalSlot.bone,attachment:"clip"});
   const skins=Array.isArray(json.skins)?json.skins:
     Object.entries(json.skins||{}).map(([name,attachments])=>({name,attachments}));
