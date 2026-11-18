@@ -31,6 +31,8 @@ function setTargets() {
   for (let i = 0; i < state.images.length; i++) imagePicker.add(new Option(state.images[i].file.name, String(i)));
   $("image-row").hidden = state.images.length === 0;
   targetInput.replaceChildren();
+  if (state.bridge && choices.length > 1)
+    targetInput.add(new Option("Select exact Spine region...", ""));
   for (let i = 0; i < choices.length; i++) {
     const c = choices[i], opt = document.createElement("option");
     opt.value = String(i);
@@ -84,7 +86,7 @@ async function addFiles(fileList, fromBridge = false) {
   } catch (e) { status(e.message, true); }
 }
 function selectSource(fromPicker = false) {
-  const selected = state.choices?.[Number(targetInput.value)] || null;
+  const selected = targetInput.value === "" ? null : (state.choices?.[Number(targetInput.value)] || null);
   const picker = $("image-source");
   if (!fromPicker) {
     let matched = -1;
@@ -171,7 +173,7 @@ function downloadBlob(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 function selectedRegion() {
-  return state.choices?.[Number(targetInput.value)] || null;
+  return targetInput.value === "" ? null : (state.choices?.[Number(targetInput.value)] || null);
 }
 async function generate() {
   if (state.binary && !state.json) {
