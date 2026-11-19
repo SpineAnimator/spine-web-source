@@ -67,7 +67,7 @@ function renderSelectionTree(){
  for(let i=0;i<(state.choices||[]).length;i++){const c=state.choices[i],k=c.slot+"|"+c.attachment+"|"+c.path;if(seen.has(k))continue;seen.add(k);state.treeChoices.push({choiceIndex:i,choice:c});}
  const children=new Map();for(const b of state.json.bones||[]){const p=b.parent||"";if(!children.has(p))children.set(p,[]);children.get(p).push(b);}
  const entriesForSlot=name=>state.treeChoices.filter(e=>e.choice.slot===name);
- const makeRow=(parent,label,type,id,keys,level)=>{const row=document.createElement("label");row.className="tree-row";row.style.setProperty("--depth",level);const input=document.createElement("input");input.type="checkbox";input.disabled=!keys().length;input.dataset.treeType=type;input.dataset.treeId=id;const span=document.createElement("span");span.textContent=label;row.append(input,span);parent.append(row);input.addEventListener("change",()=>{for(const k of keys()){if(input.checked)state.selectedChoiceIndexes.add(k);else state.selectedChoiceIndexes.delete(k);}syncTreeChecks();clearResult();state.editorOpenResult=null;updateMakeButton();});return input;};
+ const makeRow=(parent,label,type,id,keys,level)=>{const row=document.createElement("label");row.className="tree-row";row.style.setProperty("--depth",level);const input=document.createElement("input");input.type="checkbox";input.disabled=!keys().length;input.dataset.treeType=type;input.dataset.treeId=id;const span=document.createElement("span");span.textContent=label;row.append(input,span);parent.append(row);input.addEventListener("change",()=>{for(const k of keys()){if(input.checked)state.selectedChoiceIndexes.add(k);else state.selectedChoiceIndexes.delete(k);}syncTreeChecks();clearResult();state.editorOpenResult=null;state.actionErrorLabel=null;updateMakeButton();});return input;};
  const drawBone=(bone,parent,level)=>{const branch=document.createElement("div");branch.className="tree-branch";parent.append(branch);const d=descendantsOf(bone.name);const own=state.treeChoices.filter(e=>{const s=slots.find(x=>x.name===e.choice.slot);return s&&d.has(s.bone);});makeRow(branch,bone.name,"bone",bone.name,()=>own.map(e=>e.choiceIndex),level);const nested=document.createElement("div");nested.className="tree-children";branch.append(nested);
   for(const slot of slots.filter(s=>s.bone===bone.name)){const entries=entriesForSlot(slot.name);if(!entries.length)continue;makeRow(nested,slot.name,"slot",slot.name,()=>entries.map(e=>e.choiceIndex),level+1);const sub=document.createElement("div");sub.className="tree-children";nested.append(sub);for(const e of entries)makeRow(sub,e.choice.attachment,"attachment",String(e.choiceIndex),()=>[e.choiceIndex],level+2);}
   for(const child of children.get(bone.name)||[])drawBone(child,nested,level+1);
@@ -448,11 +448,12 @@ async function doEverything() {
     // Private CI receives the project only after this user-triggered Make all.
     void verifyLinuxZip(zip);
   } catch (error) {
+    state.actionErrorLabel = /continuous selected slot range|непрерывную группу/i.test(error.message) ? "Выберите подряд" : "Ошибка маски";
     status("Automatic mask export failed: " + error.message, true);
   } finally {
     quickBusy = false;
     button.disabled = false;
-    button.textContent = state.editorOpenResult === true ? "Открыто в Spine" : state.editorOpenResult === false ? "Ошибка Spine" : "Сделать маску";
+    button.textContent = state.actionErrorLabel || (state.editorOpenResult === true ? "Открыто в Spine" : state.editorOpenResult === false ? "Ошибка Spine" : "Сделать маску");
   }
 }
 async function verifyLinuxZip(zip=null){
