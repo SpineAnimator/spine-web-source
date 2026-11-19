@@ -9,10 +9,18 @@ let quickPickerArmed = false;
 let quickBusy = false;
 let simpleBridgeRequested = false;
 let bridgeInstalled = false;
+let bridgeNeedsUpdate = false;
 let linuxVerifyBusy = false;
 let linuxResultUrl = null;
 function reflectBridgeInstall() {
-  $("quick-install-bridge").hidden = bridgeInstalled;
+  const label = bridgeNeedsUpdate ? "Update Bridge" : "Install Bridge / Extension";
+  for (const id of ["quick-install-bridge", "bridge-install"]) {
+    const link = $(id);
+    if (!link) continue;
+    link.hidden = bridgeInstalled;
+    link.textContent = label;
+    link.setAttribute("aria-label", label);
+  }
 }
 function status(message, error = false) {
   $("status").textContent = message;
@@ -543,7 +551,7 @@ async function doEverything() {
   } finally {
     quickBusy = false;
     button.disabled = false;
-    button.textContent = state.actionErrorLabel || (state.editorOpenResult === true ? "Открыто в Spine" : state.editorOpenResult === false ? "Ошибка Spine" : "Сделать маску");
+    button.textContent = state.actionErrorLabel || (state.editorOpenResult === true ? "Открыто в Spine" : state.editorOpenResult === "saved" ? "Сохранено" : state.editorOpenResult === false ? "Ошибка Spine" : "Сделать маску");
   }
 }
 async function verifyLinuxZip(zip=null){
@@ -985,7 +993,18 @@ async function connectEditor(auto=false,choose=false){
   bridgeStatus("Connecting to locally installed Spine Editor…");
   try{
     const ping=await requestBridge("ping",{},auto?3200:6000);
-    if(ping?.protocol!=="spinemask/1")throw Error("Outdated Chrome native bridge.");
+    if(ping?.protocol!=="spinemask/1"||ping?.connected!==true){
+      bridgeNeedsUpdate=true;
+      throw Error("Outdated Chrome native bridge. Update Bridge to continue.");
+    }
+    const requiredCapabilities=["multi-slot-clipping","weighted-clipping"];
+    const availableCapabilities=Array.isArray(ping.capabilities)?ping.capabilities:[];
+    const missingCapabilities=requiredCapabilities.filter(capability=>!availableCapabilities.includes(capability));
+    if(missingCapabilities.length){
+      bridgeNeedsUpdate=true;
+      throw Error("Bridge update required: "+missingCapabilities.join(", ")+".");
+    }
+    bridgeNeedsUpdate=false;
     bridgeInstalled=true;
     reflectBridgeInstall();
     const opened=await requestBridge(choose?"choose_project":"open_project",{},210000);
@@ -1009,11 +1028,14 @@ async function connectEditor(auto=false,choose=false){
     if(!state.source||!state.result)
       bridgeStatus("Project loaded; select an exact image attachment to complete the mask.",true);
   }catch(error){
-    if(/bridge|native messaging|extension|disconnected|unavailable|timeout/i.test(String(error?.message||error))){
+    const message=String(error?.message||error);
+    if(/outdated|update required|missing bridge capability/i.test(message))bridgeNeedsUpdate=true;
+    else if(/bridge|native messaging|extension|disconnected|unavailable|timeout/i.test(message))bridgeNeedsUpdate=false;
+    if(/bridge|native messaging|extension|disconnected|unavailable|timeout|outdated|update required/i.test(message)){
       bridgeInstalled=false;
       reflectBridgeInstall();
     }
-    if(!auto){bridgeStatus("Bridge unavailable: "+error.message+" · Install Bridge or open exported JSON + images.",true);$("bridge-setup").open=true;}
+    if(!auto){bridgeStatus("Bridge unavailable: "+error.message+" · Install or update Bridge, or open exported JSON + images.",true);$("bridge-setup").open=true;}
     else bridgeStatus("Chrome Native Messaging bridge not connected. Upload files normally.");
   }finally{
     connectEditor.busy=false;
@@ -1066,8 +1088,8 @@ async function writeToEditor(epoch){
     await writeBytesToHost(started.stage,"mask.json",encoded);
     const saved=await requestBridge("commit_result",{session,stage:started.stage,openEditor:true},210000);
     if(saved?.imported&&saved?.opened){state.editorOpenResult=true;bridgeStatus("Mask applied · "+saved.project+" opened in local Spine Editor.");}
-    else if(saved?.imported){state.editorOpenResult=false;bridgeStatus("New .spine project saved; automatic editor opening was unavailable.",true);}
-    else if(saved?.saved){state.editorOpenResult=false;bridgeStatus("New Spine JSON saved. Native editor import was unavailable.",true);}
+    else if(saved?.imported){state.editorOpenResult="saved";bridgeStatus("New .spine project saved; automatic editor opening could not be verified on this platform.",true);}
+    else if(saved?.saved){state.editorOpenResult="saved";bridgeStatus("New Spine JSON saved. Native editor import was unavailable.",true);}
     else throw Error("Spine editor did not confirm output.");
   }catch(error){state.editorOpenResult=false;bridgeStatus("Local Spine export: "+error.message,true);}
   finally{
