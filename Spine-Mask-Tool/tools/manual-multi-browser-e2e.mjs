@@ -18,7 +18,8 @@ await page.addInitScript(()=>{
   };
 });
 try{
-  const response=await page.goto("https://spineanimator.github.io/Spine-Mask-Tool/",{waitUntil:"load",timeout:60000});
+  const url=process.env.SPINE_MASK_TEST_URL||"https://spineanimator.github.io/Spine-Mask-Tool/";
+  const response=await page.goto(url,{waitUntil:"load",timeout:60000});
   assert.equal(response.status(),200);
   await page.waitForFunction(()=>!!window.SpineMaskAgentControl,{timeout:45000});
   assert.equal(await page.locator("#do-all").isVisible(),true);
@@ -63,7 +64,7 @@ try{
       image_a:{partA:{type:"region",path:"part-a",width:48,height:48}},
       image_b:{partB:{type:"region",path:"part-b",width:48,height:48}},
       hotspot:{hotspot:{type:"region",path:"hotspot",width:8,height:8}}
-    }}],animations:{idle:{}}};
+    }}],animations:{idle:{bones:{left:{rotate:[{time:0,angle:0},{time:1,angle:25}]},right:{rotate:[{time:0,angle:0},{time:1,angle:-25}]}}}}};
   const picker=page.waitForEvent("filechooser",{timeout:15000});
   await page.locator("#do-all").click();
   const dialog=await picker;
@@ -103,6 +104,12 @@ try{
     "clips=[a for s in j['skins'] for slot in s['attachments'].values() for a in slot.values() if a.get('type')=='clipping']",
     "assert len(clips)==1 and clips[0]['end']=='image_b'",
     "assert j['slots'][0]['name']=='auto_mask_multi' and j['slots'][0]['bone']=='root'",
+    "v=clips[0]['vertices']; count=clips[0]['vertexCount']",
+    "assert len(v)==count*5, 'multi-bone clipping must use weighted vertex tuples'",
+    "assert all(v[i*5]==1 and v[i*5+4]==1 for i in range(count))",
+    "assert {v[i*5+1] for i in range(count)}=={1,2}, 'both animated source bones must own clipping vertices'",
+    "assert j['animations']['idle']['bones']['left']['rotate'][-1]['angle']==25",
+    "assert j['animations']['idle']['bones']['right']['rotate'][-1]['angle']==-25",
     "assert 3<=clips[0]['vertexCount']<=2500",
     "assert [s['name'] for s in j['slots']][:3]==['auto_mask_multi','image_a','image_b']",
     "assert j['skins'][0]['attachments']['hotspot']['hotspot']['path']=='hotspot'",
