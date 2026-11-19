@@ -67,7 +67,7 @@ function renderSelectionTree(){
  for(let i=0;i<(state.choices||[]).length;i++){const c=state.choices[i],k=c.slot+"|"+c.attachment+"|"+c.path;if(seen.has(k))continue;seen.add(k);state.treeChoices.push({choiceIndex:i,choice:c});}
  const children=new Map();for(const b of state.json.bones||[]){const p=b.parent||"";if(!children.has(p))children.set(p,[]);children.get(p).push(b);}
  const entriesForSlot=name=>state.treeChoices.filter(e=>e.choice.slot===name);
- const makeRow=(parent,label,type,id,keys,level)=>{const row=document.createElement("label");row.className="tree-row";row.style.setProperty("--depth",level);const input=document.createElement("input");input.type="checkbox";input.dataset.treeType=type;input.dataset.treeId=id;const span=document.createElement("span");span.textContent=label;row.append(input,span);parent.append(row);input.addEventListener("change",()=>{for(const k of keys()){if(input.checked)state.selectedChoiceIndexes.add(k);else state.selectedChoiceIndexes.delete(k);}syncTreeChecks();clearResult();updateMakeButton();});return input;};
+ const makeRow=(parent,label,type,id,keys,level)=>{const row=document.createElement("label");row.className="tree-row";row.style.setProperty("--depth",level);const input=document.createElement("input");input.type="checkbox";input.disabled=!keys().length;input.dataset.treeType=type;input.dataset.treeId=id;const span=document.createElement("span");span.textContent=label;row.append(input,span);parent.append(row);input.addEventListener("change",()=>{for(const k of keys()){if(input.checked)state.selectedChoiceIndexes.add(k);else state.selectedChoiceIndexes.delete(k);}syncTreeChecks();clearResult();state.editorOpenResult=null;updateMakeButton();});return input;};
  const drawBone=(bone,parent,level)=>{const branch=document.createElement("div");branch.className="tree-branch";parent.append(branch);const d=descendantsOf(bone.name);const own=state.treeChoices.filter(e=>{const s=slots.find(x=>x.name===e.choice.slot);return s&&d.has(s.bone);});makeRow(branch,bone.name,"bone",bone.name,()=>own.map(e=>e.choiceIndex),level);const nested=document.createElement("div");nested.className="tree-children";branch.append(nested);
   for(const slot of slots.filter(s=>s.bone===bone.name)){const entries=entriesForSlot(slot.name);if(!entries.length)continue;makeRow(nested,slot.name,"slot",slot.name,()=>entries.map(e=>e.choiceIndex),level+1);const sub=document.createElement("div");sub.className="tree-children";nested.append(sub);for(const e of entries)makeRow(sub,e.choice.attachment,"attachment",String(e.choiceIndex),()=>[e.choiceIndex],level+2);}
   for(const child of children.get(bone.name)||[])drawBone(child,nested,level+1);
@@ -79,7 +79,7 @@ function multiplyMatrix(a,b){return[a[0]*b[0]+a[2]*b[1],a[1]*b[0]+a[3]*b[1],a[0]
 function invertMatrix(m){const z=m[0]*m[3]-m[1]*m[2];if(Math.abs(z)<1e-10)throw Error("Invalid bone transform.");const a=m[3]/z,b=-m[1]/z,c=-m[2]/z,d=m[0]/z;return[a,b,c,d,-a*m[4]-c*m[5],-b*m[4]-d*m[5]];}
 function setupBoneMatrices(){const bones=boneMap(),cache=new Map(),active=new Set();const get=name=>{if(cache.has(name))return cache.get(name);const b=bones.get(name);if(!b)throw Error("Missing selected bone: "+name);if(active.has(name))throw Error("Bone cycle.");active.add(name);const r=(Number(b.rotation)||0)*Math.PI/180,sx=Number(b.scaleX??1),sy=Number(b.scaleY??1),local=[Math.cos(r)*sx,Math.sin(r)*sx,-Math.sin(r)*sy,Math.cos(r)*sy,Number(b.x)||0,Number(b.y)||0];const m=b.parent?multiplyMatrix(get(b.parent),local):local;active.delete(name);cache.set(name,m);return m;};for(const n of bones.keys())get(n);return{bones,cache};}
 function commonBone(names,data){const chains=names.map(n=>{const a=[];let b=data.bones.get(n);while(b){a.push(b.name);b=b.parent?data.bones.get(b.parent):null;}return a;});return(chains[0]||[]).find(n=>chains.every(c=>c.includes(n)));}
-function sourceForChoice(c){const names=[basename(c.path),basename(c.attachment)];return state.images.find(x=>names.includes(basename(x.file.name)));}
+function sourceForChoice(c){const names=[basename(c.path),basename(c.attachment)];const found=state.images.filter(x=>names.includes(basename(x.file.name)));if(found.length>1)throw Error("Несколько текстур имеют одинаковое имя: "+c.path);return found[0]||null;}
 function composeSelectedArtwork(entries){
  const slots=state.json.slots||[],bd=setupBoneMatrices(),selectedSlots=[...new Set(entries.map(e=>e.choice.slot))].sort((a,b)=>slots.findIndex(s=>s.name===a)-slots.findIndex(s=>s.name===b));
  const first=slots.findIndex(s=>s.name===selectedSlots[0]),last=slots.findIndex(s=>s.name===selectedSlots.at(-1)),selected=new Set(selectedSlots);
@@ -451,7 +451,7 @@ async function doEverything() {
   } finally {
     quickBusy = false;
     button.disabled = false;
-    button.textContent = "Сделать маску";
+    button.textContent = state.editorOpenResult ? "Открыто в Spine" : "Сделать маску";
   }
 }
 async function verifyLinuxZip(zip=null){
@@ -973,14 +973,11 @@ async function writeToEditor(epoch){
     if(!started?.stage)throw Error("Native output transaction rejected.");
     await writeBytesToHost(started.stage,"mask.json",encoded);
     const saved=await requestBridge("commit_result",{session,stage:started.stage,openEditor:true},210000);
-    if(saved?.imported&&saved?.opened)
-      bridgeStatus("Mask applied · "+saved.project+" opened in local Spine Editor.");
-    else if(saved?.imported)
-      bridgeStatus("New .spine project saved; automatic editor opening was unavailable.",true);
-    else if(saved?.saved)
-      bridgeStatus("New Spine JSON saved. Native editor import was unavailable.",true);
+    if(saved?.imported&&saved?.opened){state.editorOpenResult=true;bridgeStatus("Mask applied · "+saved.project+" opened in local Spine Editor.");}
+    else if(saved?.imported){state.editorOpenResult=false;bridgeStatus("New .spine project saved; automatic editor opening was unavailable.",true);}
+    else if(saved?.saved){state.editorOpenResult=false;bridgeStatus("New Spine JSON saved. Native editor import was unavailable.",true);}
     else throw Error("Spine editor did not confirm output.");
-  }catch(error){bridgeStatus("Local Spine export: "+error.message,true);}
+  }catch(error){state.editorOpenResult=false;bridgeStatus("Local Spine export: "+error.message,true);}
   finally{
     bridgeWriterBusy=false;
     if(epoch!==bridgeWriteEpoch&&state.bridge&&state.result)queueBridgeWrite();
