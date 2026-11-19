@@ -1,10 +1,10 @@
-import { imageMask, availableRegions, exportJson, exportLocalEditorMask, maskVertices } from "./core.js?v=73a39f59";
+import { imageMask, availableRegions, exportJson, exportLocalEditorMask, exportLocalEditorMultiMask, maskVertices } from "./core.js?v=73a39f59";
 import { submitSpineProject, pollSpineResult } from "./linux-api.js?v=20261119";
 
 const $ = id => document.getElementById(id);
 const filesInput = $("files"), targetInput = $("target"), canvas = $("preview");
 const ctx = canvas.getContext("2d", { willReadFrequently: true });
-const state = { images: [], json: null, binary: null, source: null, sourceFile: null, result: null, base: "mask", fillImage: null, bridge: null };
+const state = { images: [], json: null, binary: null, source: null, sourceFile: null, result: null, base: "mask", fillImage: null, bridge: null, selectedChoiceIndexes: new Set(), treeChoices: [] };
 let quickPickerArmed = false;
 let quickBusy = false;
 let simpleBridgeRequested = false;
@@ -53,8 +53,57 @@ function setTargets() {
   $("target-row").hidden = choices.length === 0;
   if (state.json && choices.length === 0)
     status("Skeleton loaded, but no region attachments found. Provide a region attachment in Spine.", true);
+  renderSelectionTree();\n}
+
+function boneMap(){return new Map((state.json?.bones||[]).map(b=>[b.name,b]));}
+function descendantsOf(name){const map=boneMap(),out=new Set([name]);let changed=true;while(changed){changed=false;for(const b of map.values())if(b.parent&&out.has(b.parent)&&!out.has(b.name)){out.add(b.name);changed=true;}}return out;}
+function updateMakeButton(){const n=state.selectedChoiceIndexes?.size||0;$("do-all").textContent=n?"Сделать маску · "+n:"Сделать маску";$("do-all").disabled=quickBusy||(!state.json&&!state.images.length&&!state.binary);}
+function syncTreeChecks(){const root=$("selection-tree");if(!root)return;for(const box of root.querySelectorAll('input[type="checkbox"]')){const type=box.dataset.treeType,id=box.dataset.treeId;let keys=[];if(type==="bone"){const d=descendantsOf(id);keys=state.treeChoices.filter(e=>{const s=state.json.slots.find(x=>x.name===e.choice.slot);return s&&d.has(s.bone);}).map(e=>e.choiceIndex);}else if(type==="slot")keys=state.treeChoices.filter(e=>e.choice.slot===id).map(e=>e.choiceIndex);else keys=[Number(id)];const count=keys.filter(k=>state.selectedChoiceIndexes.has(k)).length;box.checked=keys.length>0&&count===keys.length;box.indeterminate=count>0&&count<keys.length;}}
+function renderSelectionTree(){
+ const root=$("selection-tree");if(!root)return;root.replaceChildren();state.selectedChoiceIndexes=new Set();state.treeChoices=[];
+ if(!state.json)return;
+ const slots=state.json.slots||[],seen=new Set();
+ for(let i=0;i<(state.choices||[]).length;i++){const c=state.choices[i],k=c.slot+"|"+c.attachment+"|"+c.path;if(seen.has(k))continue;seen.add(k);state.treeChoices.push({choiceIndex:i,choice:c});}
+ const children=new Map();for(const b of state.json.bones||[]){const p=b.parent||"";if(!children.has(p))children.set(p,[]);children.get(p).push(b);}
+ const entriesForSlot=name=>state.treeChoices.filter(e=>e.choice.slot===name);
+ const makeRow=(parent,label,type,id,keys,level)=>{const row=document.createElement("label");row.className="tree-row";row.style.setProperty("--depth",level);const input=document.createElement("input");input.type="checkbox";input.dataset.treeType=type;input.dataset.treeId=id;const span=document.createElement("span");span.textContent=label;row.append(input,span);parent.append(row);input.addEventListener("change",()=>{for(const k of keys()){if(input.checked)state.selectedChoiceIndexes.add(k);else state.selectedChoiceIndexes.delete(k);}syncTreeChecks();clearResult();updateMakeButton();});return input;};
+ const drawBone=(bone,parent,level)=>{const branch=document.createElement("div");branch.className="tree-branch";parent.append(branch);const d=descendantsOf(bone.name);const own=state.treeChoices.filter(e=>{const s=slots.find(x=>x.name===e.choice.slot);return s&&d.has(s.bone);});makeRow(branch,bone.name,"bone",bone.name,()=>own.map(e=>e.choiceIndex),level);const nested=document.createElement("div");nested.className="tree-children";branch.append(nested);
+  for(const slot of slots.filter(s=>s.bone===bone.name)){const entries=entriesForSlot(slot.name);if(!entries.length)continue;makeRow(nested,slot.name,"slot",slot.name,()=>entries.map(e=>e.choiceIndex),level+1);const sub=document.createElement("div");sub.className="tree-children";nested.append(sub);for(const e of entries)makeRow(sub,e.choice.attachment,"attachment",String(e.choiceIndex),()=>[e.choiceIndex],level+2);}
+  for(const child of children.get(bone.name)||[])drawBone(child,nested,level+1);
+ };
+ const boneNames=new Set((state.json.bones||[]).map(b=>b.name));for(const b of state.json.bones||[])if(!b.parent||!boneNames.has(b.parent))drawBone(b,root,0);
+ syncTreeChecks();updateMakeButton();
 }
-async function decode(file) {
+function multiplyMatrix(a,b){return[a[0]*b[0]+a[2]*b[1],a[1]*b[0]+a[3]*b[1],a[0]*b[2]+a[2]*b[3],a[1]*b[2]+a[3]*b[3],a[0]*b[4]+a[2]*b[5]+a[4],a[1]*b[4]+a[3]*b[5]+a[5]];}
+function invertMatrix(m){const z=m[0]*m[3]-m[1]*m[2];if(Math.abs(z)<1e-10)throw Error("Invalid bone transform.");const a=m[3]/z,b=-m[1]/z,c=-m[2]/z,d=m[0]/z;return[a,b,c,d,-a*m[4]-c*m[5],-b*m[4]-d*m[5]];}
+function setupBoneMatrices(){const bones=boneMap(),cache=new Map(),active=new Set();const get=name=>{if(cache.has(name))return cache.get(name);const b=bones.get(name);if(!b)throw Error("Missing selected bone: "+name);if(active.has(name))throw Error("Bone cycle.");active.add(name);const r=(Number(b.rotation)||0)*Math.PI/180,sx=Number(b.scaleX??1),sy=Number(b.scaleY??1),local=[Math.cos(r)*sx,Math.sin(r)*sx,-Math.sin(r)*sy,Math.cos(r)*sy,Number(b.x)||0,Number(b.y)||0];const m=b.parent?multiplyMatrix(get(b.parent),local):local;active.delete(name);cache.set(name,m);return m;};for(const n of bones.keys())get(n);return{bones,cache};}
+function commonBone(names,data){const chains=names.map(n=>{const a=[];let b=data.bones.get(n);while(b){a.push(b.name);b=b.parent?data.bones.get(b.parent):null;}return a;});return(chains[0]||[]).find(n=>chains.every(c=>c.includes(n)));}
+function sourceForChoice(c){const names=[basename(c.path),basename(c.attachment)];return state.images.find(x=>names.includes(basename(x.file.name)));}
+function composeSelectedArtwork(entries){
+ const slots=state.json.slots||[],bd=setupBoneMatrices(),selectedSlots=[...new Set(entries.map(e=>e.choice.slot))].sort((a,b)=>slots.findIndex(s=>s.name===a)-slots.findIndex(s=>s.name===b));
+ const first=slots.findIndex(s=>s.name===selectedSlots[0]),last=slots.findIndex(s=>s.name===selectedSlots.at(-1)),selected=new Set(selectedSlots);
+ for(let i=first;i<=last;i++)if(!selected.has(slots[i].name))throw Error("Выбери непрерывную группу слотов.");
+ const names=selectedSlots.map(n=>slots.find(s=>s.name===n).bone),clipBone=commonBone(names,bd);if(!clipBone)throw Error("Нет общей родительской кости.");
+ const inv=invertMatrix(bd.cache.get(clipBone)),items=[];
+ for(const e of entries){const c=e.choice,slot=slots.find(s=>s.name===c.slot),asset=sourceForChoice(c);if(!asset)throw Error("Нет текстуры для "+c.attachment);const im=asset.image,d=c.data||{},w=Number(d.width)||im.width,h=Number(d.height)||im.height,r=(Number(d.rotation)||0)*Math.PI/180,sx=Number(d.scaleX??1),sy=Number(d.scaleY??1),co=Math.cos(r),si=Math.sin(r);
+  const a=co*w*sx/im.width,b=si*w*sx/im.width,cc=si*h*sy/im.height,dd=-co*h*sy/im.height,x=Number(d.x)||0,y=Number(d.y)||0;
+  const attach=[a,b,cc,dd,x-a*im.width/2-cc*im.height/2,y-b*im.width/2-dd*im.height/2],m=multiplyMatrix(inv,multiplyMatrix(bd.cache.get(slot.bone),attach));
+  const corners=[[0,0],[im.width,0],[0,im.height],[im.width,im.height]].map(([px,py])=>[m[0]*px+m[2]*py+m[4],m[1]*px+m[3]*py+m[5]]);items.push({im,m,corners});
+ }
+ const xs=items.flatMap(x=>x.corners.map(p=>p[0])),ys=items.flatMap(x=>x.corners.map(p=>p[1])),minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys),scale=Math.min(1,1400/Math.max(maxX-minX,maxY-minY)),width=Math.max(1,Math.ceil((maxX-minX)*scale)),height=Math.max(1,Math.ceil((maxY-minY)*scale));
+ if(width*height>2400000)throw Error("Selected artwork too large.");
+ const canvas=document.createElement("canvas");canvas.width=width;canvas.height=height;const ctx=canvas.getContext("2d",{willReadFrequently:true});
+ for(const item of items){const m=item.m;ctx.setTransform(m[0]*scale,-m[1]*scale,m[2]*scale,-m[3]*scale,(m[4]-minX)*scale,(maxY-m[5])*scale);ctx.drawImage(item.im,0,0);}ctx.setTransform(1,0,0,1,0,0);
+ return{canvas,minX,maxY,scale,clipBone,selectedSlots,firstSlot:selectedSlots[0],lastSlot:selectedSlots.at(-1)};
+}
+async function generateSelectedObjects(){
+ const entries=state.treeChoices.filter(e=>state.selectedChoiceIndexes.has(e.choiceIndex));if(!entries.length)throw Error("Выбери объект в дереве.");
+ const c=composeSelectedArtwork(entries),ctx=c.canvas.getContext("2d",{willReadFrequently:true}),mask=imageMask(ctx.getImageData(0,0,c.canvas.width,c.canvas.height),{highlightFaces:$("highlight-edges").checked});
+ const points=mask.points.map(([x,y])=>[c.minX+x/c.scale,c.maxY-y/c.scale]),out=exportLocalEditorMultiMask(state.json,c.selectedSlots,points,c.clipBone,c.firstSlot,c.lastSlot);
+ state.source=c.canvas;state.sourceFile=null;state.result={mask,json:out.json,slot:out.clippingSlot,imageOnly:false,multi:true,selectedSlots:c.selectedSlots,clipBone:c.clipBone};
+ showPreview(mask);$("download-json").disabled=false;$("native-preview").disabled=false;$("download-spine-zip").disabled=false;$("download-png").hidden=true;$("summary").textContent="ONE CLIPPING MASK · "+mask.stats.vertices+" vertices";status("Mask ready.");if(state.bridge)queueBridgeWrite();
+}
+\nasync function decode(file) {
   if (typeof createImageBitmap === "function") return createImageBitmap(file);
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file), img = new Image();
@@ -182,7 +231,7 @@ async function addFiles(fileList, fromBridge = false) {
     else if (state.json) status("Spine JSON loaded. Select a region and generate its clipping mask.");
     else if (state.images.length) status("Image loaded. A new Spine 4.3 skeleton with one clipping attachment will be created.");
     else status("No Spine JSON or region image found. Select a project ZIP, folder or exported Spine JSON with images.", true);
-    if(state.source && !state.binary && (!state.json||selectedRegion())) await generate();
+    // Generation is explicit: the artist chooses objects in the hierarchy first.
   } catch (e) { status(e.message, true); }
 }
 function selectSource(fromPicker = false) {
