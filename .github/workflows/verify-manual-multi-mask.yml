@@ -32,7 +32,7 @@ jobs:
       - name: Install isolated Playwright Chromium
         run: |
           npm install --prefix "$RUNNER_TEMP/mask-ui" --no-audit --no-fund --silent playwright@1.56.1
-          "$RUNNER_TEMP/mask-ui/node_modules/.bin/playwright" install --with-deps chromium
+          "$RUNNER_TEMP/mask-ui/node_modules/.bin/playwright" install chromium
       - name: Serve this branch and verify weighted multi-bone mask
         shell: bash
         run: |
