@@ -13,6 +13,7 @@ on:
       - Spine-Mask-Tool/app.js
       - Spine-Mask-Tool/core.js
       - Spine-Mask-Tool/index.html
+      - Spine-Mask-Tool/tools/manual-multi-browser-e2e.mjs
       - .github/workflows/verify-manual-multi-mask.yml
   workflow_dispatch:
 permissions:
