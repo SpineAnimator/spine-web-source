@@ -87,7 +87,6 @@ try{
   await page.waitForSelector("#selection-tree .tree-row",{timeout:20000});
   const leftBone=page.locator('#selection-tree input[data-tree-type="bone"][data-tree-id="left"]');
   const rightSlot=page.locator('#selection-tree input[data-tree-type="slot"][data-tree-id="image_b"]');
-  await leftBone.check();await rightSlot.check();
   const a=page.locator("#selection-tree label.tree-row").filter({hasText:"partA"}).locator("input");
   const b=page.locator("#selection-tree label.tree-row").filter({hasText:"partB"}).locator("input");
   await a.check();
