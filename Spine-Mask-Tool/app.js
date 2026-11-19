@@ -6,6 +6,7 @@ const ctx = canvas.getContext("2d", { willReadFrequently: true });
 const state = { images: [], json: null, binary: null, source: null, sourceFile: null, result: null, base: "mask", fillImage: null, bridge: null };
 let quickPickerArmed = false;
 let quickBusy = false;
+let simpleBridgeRequested = false;
 function status(message, error = false) {
   $("status").textContent = message;
   $("status").dataset.error = error ? "yes" : "no";
@@ -387,6 +388,16 @@ async function doEverything() {
   }
 }
 $("do-all").addEventListener("click", () => void doEverything());
+$("quick-from-spine").addEventListener("click", () => {
+  simpleBridgeRequested = true;
+  $("quick-bridge-status").hidden = false;
+  bridgeStatus("Connecting to open Spine Editor…");
+  void connectEditor(false);
+});
+$("quick-choose-project").addEventListener("click", () => {
+  simpleBridgeRequested = true;
+  void connectEditor(false, true);
+});
 $("highlight-edges").addEventListener("change", () => {
   if(state.source&&(!state.json||selectedRegion()))generate();
 });
@@ -674,8 +685,15 @@ window.addEventListener("message",event=>{
 });
 function bridgeStatus(message,error=false){
   const element=$("bridge-status");
-  if(!element)return;
-  element.textContent=message;element.dataset.error=error?"yes":"no";
+  if(element){element.textContent=message;element.dataset.error=error?"yes":"no";}
+  // Simple must show Bridge progress and failure without switching to Agents.
+  if(simpleBridgeRequested){
+    const quick=$("quick-bridge-status");
+    quick.textContent=message;quick.hidden=false;
+    quick.dataset.error=error?"yes":"no";
+    $("quick-choose-project").hidden=!message.includes("no unambiguous open Spine project");
+    $("quick-install-bridge").hidden=!message.includes("Bridge unavailable");
+  }
 }
 function decode64(s){
   const raw=atob(s),out=new Uint8Array(raw.length);
