@@ -647,7 +647,7 @@ export function exportJson(original, target, points, sourceW, sourceH) {
 }
 
 
-// Build one clipping attachment for a manually selected, contiguous draw-order range.
+// Build one clipping attachment spanning the first through last manually selected draw-order slot.
 // Vertices are already expressed in the selected common ancestor bone's local space.
 export function exportLocalEditorMultiMask(original, selectedSlots, points, clipBone, firstSlot, lastSlot, weightedVertices = null) {
   if(!original||!Array.isArray(selectedSlots)||!selectedSlots.length||
@@ -690,11 +690,7 @@ export function exportLocalEditorMultiMask(original, selectedSlots, points, clip
   const first=slots.findIndex(s=>s.name===firstSlot);
   const last=slots.findIndex(s=>s.name===lastSlot);
   if(first<0||last<first)throw Error("Invalid clipping range.");
-  const selectedSet=new Set(wanted);
-  for(let i=first;i<=last;i++){
-    if(!selectedSet.has(slots[i].name))
-      throw Error("One clipping attachment can cover only a continuous selected slot range.");
-  }
+  // Spine clips every slot in this draw-order interval. Geometry is built only from selected attachments.
   const generated=slots.filter(s=>s.name?.startsWith("auto_mask_"));
   if(generated.length>1)throw Error("Project contains multiple generated masks; clean up the previous result first.");
   let maskName=generated[0]?.name||"auto_mask_multi";
