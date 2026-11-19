@@ -104,7 +104,8 @@ async function generateSelectedObjects(){
  state.source=c.canvas;state.sourceFile=null;state.result={mask,json:out.json,slot:out.clippingSlot,imageOnly:false,multi:true,selectedSlots:c.selectedSlots,clipBone:c.clipBone};
  showPreview(mask);$("download-json").disabled=false;$("native-preview").disabled=false;$("download-spine-zip").disabled=false;$("download-png").hidden=true;$("summary").textContent="ONE CLIPPING MASK · "+mask.stats.vertices+" vertices";status("Mask ready.");
 }
-\nasync function decode(file) {
+
+async function decode(file) {
   if (typeof createImageBitmap === "function") return createImageBitmap(file);
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file), img = new Image();
