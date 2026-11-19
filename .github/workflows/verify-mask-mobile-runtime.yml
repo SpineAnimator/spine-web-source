@@ -4,6 +4,8 @@ on:
     branches: [main]
     paths:
       - Spine-Mask-Tool/core.js
+      - Spine-Mask-Tool/app.js
+      - Spine-Mask-Tool/tools/weighted-clipping-runtime-e2e.mjs
       - Spine-Mask-Tool/tools/mobile-spine-runtime-audit.mjs
       - Spine-Mask-Tool/AI_AGENT_MOBILE_CLIPPING.md
       - .github/workflows/verify-mask-mobile-runtime.yml
@@ -30,6 +32,8 @@ jobs:
       - name: Use matching official Spine Runtime (no private skeleton data)
         run: |
           npm install --no-save --no-audit --no-fund --silent '@esotericsoftware/spine-core@4.3.13'
+      - name: Verify weighted clipping follows independently animated bones in official Spine 4.3 runtime
+        run: node Spine-Mask-Tool/tools/weighted-clipping-runtime-e2e.mjs
       - name: Test synthetic image tracing and one-mask Spine export
         shell: bash
         run: |
