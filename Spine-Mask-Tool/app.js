@@ -452,7 +452,7 @@ async function doEverything() {
   } finally {
     quickBusy = false;
     button.disabled = false;
-    button.textContent = state.editorOpenResult ? "Открыто в Spine" : "Сделать маску";
+    button.textContent = state.editorOpenResult === true ? "Открыто в Spine" : state.editorOpenResult === false ? "Ошибка Spine" : "Сделать маску";
   }
 }
 async function verifyLinuxZip(zip=null){

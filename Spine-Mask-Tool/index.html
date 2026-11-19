@@ -194,9 +194,6 @@ body:not(.agent-mode) .toolbar h1{font-size:1.1rem}
     <input type="file" id="project-folder" webkitdirectory directory multiple hidden aria-label="Choose Spine project folder">
   </div>
   <div class="panels">
-    <section class="selection-panel" aria-label="Spine hierarchy">
-      <div id="selection-tree" class="selection-tree"></div>
-    </section>
     <section class="preview-panel" aria-label="Source and mask preview">
       <div class="preview-head"><span>.spine .json .skel .zip .atlas .png .webp .jpg</span></div>
       <label class="file-zone">
@@ -260,6 +257,9 @@ body:not(.agent-mode) .toolbar h1{font-size:1.1rem}
       </details>
     </section>
   </div>
+  <section class="selection-panel" aria-label="Spine hierarchy">
+    <div id="selection-tree" class="selection-tree"></div>
+  </section>
   <div class="quick-action">
     <div class="quick-buttons">
       <button id="quick-from-spine" type="button">Spine</button>
