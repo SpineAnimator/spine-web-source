@@ -19,7 +19,35 @@ on:
 permissions:
   contents: read
 jobs:
+  branch-local-multi-object-ui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install isolated Playwright Chromium
+        run: |
+          npm install --prefix "$RUNNER_TEMP/mask-ui" --no-audit --no-fund --silent playwright@1.56.1
+          "$RUNNER_TEMP/mask-ui/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Serve this branch and verify weighted multi-bone mask
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m http.server 8765 --directory . > "$RUNNER_TEMP/mask-ui-server.log" 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          for i in {1..20}; do
+            curl --fail --silent http://127.0.0.1:8765/Spine-Mask-Tool/ >/dev/null && break
+            sleep 1
+          done
+          SPINE_MASK_TEST_URL=http://127.0.0.1:8765/Spine-Mask-Tool/ node Spine-Mask-Tool/tools/manual-multi-browser-e2e.mjs
+
   live-public-site-multi-object-ui:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
