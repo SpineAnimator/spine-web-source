@@ -24,6 +24,11 @@ try{
   assert.equal(await page.locator("#do-all").isVisible(),true);
   assert.equal(await page.locator("#quick-from-spine").isVisible(),true);
   assert.equal(await page.locator("#agent-toggle").isVisible(),true);
+  console.log("PUBLIC_SITE_BOOT",{
+    selectionTree:await page.locator("#selection-tree").count(),
+    projectFiles:await page.locator("#project-files").count(),
+    makeButton:await page.locator("#do-all").textContent()
+  });
   const png64=await page.evaluate(()=>{
     const c=document.createElement("canvas");c.width=64;c.height=64;
     const g=c.getContext("2d");g.fillStyle="#ffb320";g.fillRect(5,5,54,54);
@@ -52,6 +57,13 @@ try{
     {name:"part-b.png",mimeType:"image/png",buffer:texture},
     {name:"hotspot.png",mimeType:"image/png",buffer:texture}
   ]);
+  await page.waitForTimeout(1200);
+  console.log("PUBLIC_SITE_IMPORT",{
+    selectionTree:await page.locator("#selection-tree").count(),
+    rows:await page.locator("#selection-tree .tree-row").count(),
+    status:await page.locator("#status").textContent(),
+    makeButton:await page.locator("#do-all").textContent()
+  });
   await page.waitForSelector("#selection-tree .tree-row",{timeout:20000});
   const a=page.locator("#selection-tree label.tree-row").filter({hasText:"partA"}).locator("input");
   const b=page.locator("#selection-tree label.tree-row").filter({hasText:"partB"}).locator("input");
