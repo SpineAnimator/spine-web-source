@@ -1,0 +1,81 @@
+name: Spine Mask | manual multi-object clipping
+on:
+  pull_request:
+    paths:
+      - Spine-Mask-Tool/app.js
+      - Spine-Mask-Tool/core.js
+      - Spine-Mask-Tool/index.html
+      - .github/workflows/verify-manual-multi-mask.yml
+  push:
+    branches: [main]
+    paths:
+      - Spine-Mask-Tool/app.js
+      - Spine-Mask-Tool/core.js
+      - Spine-Mask-Tool/index.html
+      - .github/workflows/verify-manual-multi-mask.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  browser-module-and-export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Parse browser application module
+        run: node --input-type=module --check < Spine-Mask-Tool/app.js
+      - name: Verify one shared clipping attachment for selected slots
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          const source=fs.readFileSync('Spine-Mask-Tool/core.js','utf8');
+          const core=await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
+          const original={
+            skeleton:{spine:'4.3.26'},
+            bones:[{name:'root'},{name:'arm',parent:'root',x:12,y:8}],
+            slots:[
+              {name:'image_a',bone:'arm',attachment:'a'},
+              {name:'image_b',bone:'arm',attachment:'b'},
+              {name:'tail',bone:'root',attachment:'tail'}
+            ],
+            skins:[{name:'default',attachments:{
+              image_a:{a:{type:'region',path:'a'}},
+              image_b:{b:{type:'region',path:'b'}},
+              tail:{tail:{type:'region',path:'tail'}}
+            }}],
+            animations:{idle:{drawOrder:[{time:0,offsets:[{slot:'image_b',offset:1}]}]}}
+          };
+          const snapshot=JSON.parse(JSON.stringify(original));
+          const polygon=[[0,0],[20,0],[20,12],[0,12]];
+          const result=core.exportLocalEditorMultiMask(
+            original,['image_a','image_b'],polygon,'root','image_a','image_b');
+          assert.deepEqual(original,snapshot,'source project must remain immutable');
+          assert.deepEqual(result.json.slots.map(s=>s.name),
+            ['auto_mask_multi','image_a','image_b','tail']);
+          assert.equal(result.json.slots[0].bone,'root','clip must use common parent bone');
+          const clips=result.json.skins.flatMap(s=>Object.values(s.attachments))
+            .flatMap(slot=>Object.values(slot)).filter(a=>a?.type==='clipping');
+          assert.equal(clips.length,1,'exactly one clipping attachment');
+          assert.equal(clips[0].end,'image_b','clip spans selected slot range only');
+          assert.deepEqual(clips[0].vertices,[0,0,20,0,20,12,0,12]);
+          const repeated=core.exportLocalEditorMultiMask(
+            result.json,['image_a','image_b'],polygon,'root','image_a','image_b');
+          assert.equal(repeated.json.slots.length,result.json.slots.length,
+            're-running must update, not duplicate, the generated mask');
+          const repeatedClips=repeated.json.skins.flatMap(s=>Object.values(s.attachments))
+            .flatMap(slot=>Object.values(slot)).filter(a=>a?.type==='clipping');
+          assert.equal(repeatedClips.length,1);
+          assert.throws(()=>core.exportLocalEditorMultiMask(
+            original,['image_a','tail'],polygon,'root','image_a','tail'),
+            /continuous selected slot range/);
+          console.log('SPINE_MASK_MANUAL_MULTI_OBJECT_SINGLE_CLIP_PASS',{
+            slots:result.json.slots.length,clipVertices:clips[0].vertexCount,
+            commonBone:result.clipBone,clipEnd:clips[0].end
+          });
+          NODE
