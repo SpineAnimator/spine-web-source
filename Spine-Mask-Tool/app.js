@@ -692,7 +692,7 @@ function bridgeStatus(message,error=false){
     quick.textContent=message;quick.hidden=false;
     quick.dataset.error=error?"yes":"no";
     $("quick-choose-project").hidden=!message.includes("no unambiguous open Spine project");
-    $("quick-install-bridge").hidden=!message.includes("Bridge unavailable");
+    $("quick-install-bridge").hidden=false;
   }
 }
 function decode64(s){
