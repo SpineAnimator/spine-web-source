@@ -7,6 +7,10 @@ const state = { images: [], json: null, binary: null, source: null, sourceFile: 
 let quickPickerArmed = false;
 let quickBusy = false;
 let simpleBridgeRequested = false;
+let bridgeInstalled = false;
+function reflectBridgeInstall() {
+  $("quick-install-bridge").hidden = bridgeInstalled;
+}
 function status(message, error = false) {
   $("status").textContent = message;
   $("status").dataset.error = error ? "yes" : "no";
@@ -692,7 +696,7 @@ function bridgeStatus(message,error=false){
     quick.textContent=message;quick.hidden=false;
     quick.dataset.error=error?"yes":"no";
     $("quick-choose-project").hidden=!message.includes("no unambiguous open Spine project");
-    $("quick-install-bridge").hidden=false;
+    reflectBridgeInstall();
   }
 }
 function decode64(s){
@@ -790,6 +794,8 @@ async function connectEditor(auto=false,choose=false){
   try{
     const ping=await requestBridge("ping",{},auto?3200:6000);
     if(ping?.protocol!=="spinemask/1")throw Error("Outdated Chrome native bridge.");
+    bridgeInstalled=true;
+    reflectBridgeInstall();
     const opened=await requestBridge(choose?"choose_project":"open_project",{},210000);
     if(!opened?.open){
       bridgeStatus("Chrome bridge connected · no unambiguous open Spine project ("+
@@ -811,6 +817,10 @@ async function connectEditor(auto=false,choose=false){
     if(!state.source||!state.result)
       bridgeStatus("Project loaded; select an exact image attachment to complete the mask.",true);
   }catch(error){
+    if(/bridge|native messaging|extension|disconnected|unavailable|timeout/i.test(String(error?.message||error))){
+      bridgeInstalled=false;
+      reflectBridgeInstall();
+    }
     if(!auto){bridgeStatus("Bridge unavailable: "+error.message+" · Install Bridge or open exported JSON + images.",true);$("bridge-setup").open=true;}
     else bridgeStatus("Chrome Native Messaging bridge not connected. Upload files normally.");
   }finally{
