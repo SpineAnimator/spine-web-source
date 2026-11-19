@@ -7,6 +7,12 @@ on:
       - Spine-Mask-Tool/tools/mobile-spine-runtime-audit.mjs
       - Spine-Mask-Tool/AI_AGENT_MOBILE_CLIPPING.md
       - .github/workflows/verify-mask-mobile-runtime.yml
+  pull_request:
+    paths:
+      - Spine-Mask-Tool/core.js
+      - Spine-Mask-Tool/tools/mobile-spine-runtime-audit.mjs
+      - Spine-Mask-Tool/AI_AGENT_MOBILE_CLIPPING.md
+      - .github/workflows/verify-mask-mobile-runtime.yml
   workflow_dispatch:
 permissions:
   contents: read
@@ -24,6 +30,107 @@ jobs:
       - name: Use matching official Spine Runtime (no private skeleton data)
         run: |
           npm install --no-save --no-audit --no-fund --silent '@esotericsoftware/spine-core@4.3.13'
+      - name: Test synthetic image tracing and one-mask Spine export
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          const source=fs.readFileSync('Spine-Mask-Tool/core.js','utf8');
+          const core=await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
+          const image=(width,height)=>({width,height,data:new Uint8ClampedArray(width*height*4)});
+          function rect(img,x0,y0,x1,y1,rgba){
+            for(let y=y0;y<y1;y++)for(let x=x0;x<x1;x++)
+              img.data.set(rgba,(y*img.width+x)*4);
+          }
+          const synthetic=image(160,100);
+          rect(synthetic,15,15,82,85,[220,170,70,255]);
+          rect(synthetic,35,35,62,65,[0,0,0,0]);
+          rect(synthetic,112,28,145,72,[220,170,70,255]);
+          const mask=core.imageMask(synthetic);
+          assert.equal(mask.stats.shapes,2);
+          assert.ok(mask.stats.bridges>=1,'disconnected artwork must be connected into one polygon');
+          assert.ok(mask.stats.slits>=1,'the enclosed counter must be routed to the exterior');
+          assert.ok(mask.stats.mobileQualityPassed,'geometry must pass the mobile quality gate');
+          assert.ok(mask.stats.innerHolesPreserved,'the counter must remain outside the clipping polygon');
+          assert.ok(mask.points.length>=3&&mask.points.length<=240,'project-defined per-mask vertex budget');
+          assert.equal(mask.stats.totalSceneClippingVertices,mask.points.length*30);
+          let invisibleConnectorPixels=0;
+          for(let i=0;i<mask.binary.length;i++){
+            if(mask.binary[i]&&!mask.visibleMask[i]){
+              invisibleConnectorPixels++;
+              assert.equal(mask.visibleAlpha[i],0,'routing connector must not appear in the preview texture');
+            }
+          }
+          assert.ok(invisibleConnectorPixels>0,'fixture must exercise invisible connector routing');
+          const highlights=image(120,80);
+          rect(highlights,10,12,44,68,[24,18,12,255]);
+          rect(highlights,44,12,82,68,[120,85,42,255]);
+          rect(highlights,82,12,114,68,[235,205,120,255]);
+          const selective=core.imageMask(highlights,{highlightFaces:true});
+          assert.equal(selective.stats.highlightApplied,true,'three-class bright-face segmentation should activate');
+          assert.ok(selective.stats.darkLeakPercent<=3,'dark-source inclusion must stay within the internal 3% policy');
+          assert.ok(selective.stats.missingLightPercent<=7,'bright-face loss must stay within the internal 7% policy');
+          const original={
+            skeleton:{spine:'4.3.26',images:'./images/'},
+            bones:[{name:'root'}],
+            slots:[
+              {name:'background',bone:'root',attachment:'background'},
+              {name:'target',bone:'root',attachment:'face'},
+              {name:'hotspot',bone:'root',attachment:'hotspot'}
+            ],
+            skins:[{name:'default',attachments:{
+              background:{background:{type:'region',path:'background'}},
+              target:{face:{type:'region',path:'face',width:160,height:100}},
+              hotspot:{hotspot:{type:'region',path:'hotspot'}}
+            }}],
+            animations:{idle:{slots:{target:{attachment:[{time:0,name:'face'}]}}}}
+          };
+          const snapshot=JSON.parse(JSON.stringify(original));
+          const target={slot:'target',attachment:'face',skin:'default',
+            data:{width:160,height:100,x:0,y:0,scaleX:1,scaleY:1,rotation:0}};
+          const exported=core.exportJson(original,target,mask.points,160,100);
+          assert.deepEqual(original,snapshot,'source skeleton must remain immutable');
+          assert.deepEqual(exported.json.slots.map(s=>s.name),
+            ['background','auto_mask_target','target','hotspot']);
+          const countClips=skins=>{
+            const list=Array.isArray(skins)?skins.map(s=>s.attachments||{}):Object.values(skins||{});
+            return list.flatMap(s=>Object.values(s).flatMap(slot=>Object.values(slot||{})))
+              .filter(a=>a?.type==='clipping');
+          };
+          let clips=countClips(exported.json.skins);
+          assert.equal(clips.length,1,'export must contain exactly one genuine clipping attachment');
+          assert.equal(clips[0].end,'target');
+          assert.equal(clips[0].vertexCount,mask.points.length);
+          assert.deepEqual(exported.json.skins[0].attachments.hotspot,
+            original.skins[0].attachments.hotspot,'unbound hotspot attachment must remain unchanged');
+          assert.deepEqual(exported.json.animations,original.animations,'animation keys must remain unchanged');
+          assert.ok(!JSON.stringify(exported.json).includes('mask-overlay.png'),'no synthetic overlay texture');
+          const repeated=core.exportJson(exported.json,target,mask.points,160,100);
+          assert.equal(repeated.json.slots.length,exported.json.slots.length,'rerun must update, not duplicate, the mask slot');
+          assert.equal(countClips(repeated.json.skins).length,1);
+          const local=core.exportLocalEditorMask(original,target,mask.points,160,100);
+          assert.deepEqual(local.json.slots.map(s=>s.name),
+            ['background','auto_mask_target','target','hotspot']);
+          assert.equal(countClips(local.json.skins).length,1);
+          assert.deepEqual(local.json.animations,original.animations);
+          const legacy=JSON.parse(JSON.stringify(original));
+          legacy.skins={default:{
+            background:{background:{type:'region',path:'background'}},
+            target:{face:{type:'region',path:'face',width:160,height:100}},
+            hotspot:{hotspot:{type:'region',path:'hotspot'}}
+          }};
+          const oldExport=core.exportJson(legacy,target,mask.points,160,100);
+          assert.equal(oldExport.json.skins.default.auto_mask_target.clip.type,'clipping');
+          const oldRepeat=core.exportJson(oldExport.json,target,mask.points,160,100);
+          assert.equal(oldRepeat.json.slots.length,oldExport.json.slots.length);
+          console.log('SPINE_MASK_SYNTHETIC_GEOMETRY_ONE_CLIP_EXPORT_PASS',{
+            vertices:mask.points.length,bridges:mask.stats.bridges,slits:mask.stats.slits,
+            darkLeakPercent:selective.stats.darkLeakPercent,
+            missingLightPercent:selective.stats.missingLightPercent
+          });
+          NODE
       - name: Validate offline 30-skeleton complexity audit on synthetic polygons
         shell: bash
         run: |
