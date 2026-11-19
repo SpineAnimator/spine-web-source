@@ -6,6 +6,7 @@ on:
       - Spine-Mask-Tool/core.js
       - Spine-Mask-Tool/index.html
       - .github/workflows/verify-manual-multi-mask.yml
+      - Spine-Mask-Tool/tools/manual-multi-browser-e2e.mjs
   push:
     branches: [main]
     paths:
@@ -17,6 +18,23 @@ on:
 permissions:
   contents: read
 jobs:
+  live-public-site-multi-object-ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install isolated Playwright Chromium
+        run: |
+          npm install --prefix "$RUNNER_TEMP/mask-ui" --no-audit --no-fund --silent playwright@1.56.1
+          "$RUNNER_TEMP/mask-ui/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Exercise the live published hierarchy UI and inspect its local ZIP
+        run: node Spine-Mask-Tool/tools/manual-multi-browser-e2e.mjs
+
   browser-module-and-export:
     runs-on: ubuntu-latest
     timeout-minutes: 8
