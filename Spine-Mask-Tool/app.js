@@ -101,7 +101,7 @@ async function generateSelectedObjects(){
  const c=composeSelectedArtwork(entries),ctx=c.canvas.getContext("2d",{willReadFrequently:true}),mask=imageMask(ctx.getImageData(0,0,c.canvas.width,c.canvas.height),{highlightFaces:$("highlight-edges").checked});
  const points=mask.points.map(([x,y])=>[c.minX+x/c.scale,c.maxY-y/c.scale]),out=exportLocalEditorMultiMask(state.json,c.selectedSlots,points,c.clipBone,c.firstSlot,c.lastSlot);
  state.source=c.canvas;state.sourceFile=null;state.result={mask,json:out.json,slot:out.clippingSlot,imageOnly:false,multi:true,selectedSlots:c.selectedSlots,clipBone:c.clipBone};
- showPreview(mask);$("download-json").disabled=false;$("native-preview").disabled=false;$("download-spine-zip").disabled=false;$("download-png").hidden=true;$("summary").textContent="ONE CLIPPING MASK · "+mask.stats.vertices+" vertices";status("Mask ready.");if(state.bridge)queueBridgeWrite();
+ showPreview(mask);$("download-json").disabled=false;$("native-preview").disabled=false;$("download-spine-zip").disabled=false;$("download-png").hidden=true;$("summary").textContent="ONE CLIPPING MASK · "+mask.stats.vertices+" vertices";status("Mask ready.");
 }
 \nasync function decode(file) {
   if (typeof createImageBitmap === "function") return createImageBitmap(file);
