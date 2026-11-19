@@ -24,6 +24,22 @@ try{
   assert.equal(await page.locator("#do-all").isVisible(),true);
   assert.equal(await page.locator("#quick-from-spine").isVisible(),true);
   assert.equal(await page.locator("#agent-toggle").isVisible(),true);
+  const simpleSurface=await page.evaluate(()=>{
+    const hidden=[".chips",".fields",".control-panel",".file-zone",".preview-head",
+      ".preview-meta",".actions",".status-line",".quick-bridge-status",".quick-hint",".version"];
+    return {agentMode:document.body.classList.contains("agent-mode"),
+      hidden:hidden.every(selector=>{
+        const e=document.querySelector(selector);
+        return !e||getComputedStyle(e).display==="none"||getComputedStyle(e).visibility==="hidden";
+      }),text:document.body.innerText};
+  });
+  assert.equal(simpleSurface.agentMode,false,"Simple must be the default mode");
+  assert.equal(simpleSurface.hidden,true,"Simple mode must hide explanatory and advanced text");
+  assert.match(simpleSurface.text,/Spine Mask Tool/);
+  assert.match(simpleSurface.text,/Agents/);
+  assert.match(simpleSurface.text,/Сделать маску/);
+  assert.match(simpleSurface.text,/Install Bridge/);
+  assert.doesNotMatch(simpleSurface.text,/Drop files|No image supplied|One clipping mask|Spine Editor Bridge/);
   console.log("PUBLIC_SITE_BOOT",{
     selectionTree:await page.locator("#selection-tree").count(),
     projectFiles:await page.locator("#project-files").count(),
@@ -65,11 +81,14 @@ try{
     makeButton:await page.locator("#do-all").textContent()
   });
   await page.waitForSelector("#selection-tree .tree-row",{timeout:20000});
+  const leftBone=page.locator('#selection-tree input[data-tree-type="bone"][data-tree-id="left"]');
+  const rightSlot=page.locator('#selection-tree input[data-tree-type="slot"][data-tree-id="image_b"]');
+  await leftBone.check();await rightSlot.check();
   const a=page.locator("#selection-tree label.tree-row").filter({hasText:"partA"}).locator("input");
   const b=page.locator("#selection-tree label.tree-row").filter({hasText:"partB"}).locator("input");
-  await a.check();await b.check();
-  assert.equal(await a.isChecked(),true);assert.equal(await b.isChecked(),true);
-  assert.match(await page.locator("#do-all").textContent(),/Сделать маску/);
+  assert.equal(await a.isChecked(),true,"Selecting a bone must select its attached image");
+  assert.equal(await b.isChecked(),true,"Selecting a slot must select its attached image");
+  assert.match(await page.locator("#do-all").textContent(),/Сделать маску · 2/);
   const wait=page.waitForEvent("download",{timeout:60000});
   await page.locator("#do-all").click();
   const download=await wait;
@@ -83,6 +102,7 @@ try{
     "p=next(x for x in n if x.endswith('-mask.json')); j=json.loads(z.read(p))",
     "clips=[a for s in j['skins'] for slot in s['attachments'].values() for a in slot.values() if a.get('type')=='clipping']",
     "assert len(clips)==1 and clips[0]['end']=='image_b'",
+    "assert j['slots'][0]['name']=='auto_mask_multi' and j['slots'][0]['bone']=='root'",
     "assert 3<=clips[0]['vertexCount']<=2500",
     "assert [s['name'] for s in j['slots']][:3]==['auto_mask_multi','image_a','image_b']",
     "assert j['skins'][0]['attachments']['hotspot']['hotspot']['path']=='hotspot'",
