@@ -118,9 +118,9 @@ try{
     "assert j['animations']['idle']['bones']['right']['rotate'][-1]['angle']==-25",
     "assert 3<=clips[0]['vertexCount']<=2500",
     "assert [s['name'] for s in j['slots']][:4]==['auto_mask_multi','image_a','spacer','image_b']",
-    "assert j['skins'][0]['attachments']['spacer']['partSpacer']['path']=='spacer'
-    assert j['skins'][0]['attachments']['hotspot']['hotspot']['path']=='hotspot'
-    assert max(abs(v[i*5+3]) for i in range(count)) < 50, 'mask geometry must be built only around selected images, not the unselected spacer at y=120'",
+    "assert j['skins'][0]['attachments']['spacer']['partSpacer']['path']=='spacer'",
+    "assert j['skins'][0]['attachments']['hotspot']['hotspot']['path']=='hotspot'",
+    "assert max(abs(v[i*5+3]) for i in range(count)) < 50, 'mask geometry must be built only around selected images, not the unselected spacer at y=120'",
     "print('PUBLIC_SITE_MANUAL_NON_ADJACENT_MULTI_OBJECT_ONE_CLIP_PASS',clips[0]['vertexCount'])"
   ].join("; ");
   execFileSync("python3",["-c",py,zipPath],{stdio:"inherit"});
