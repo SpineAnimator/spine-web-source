@@ -38,7 +38,7 @@ const maskSlot=skeleton.findSlot("auto_mask_multi");
 assert.ok(maskSlot,"common-ancestor clipping slot must parse");
 const clip=maskSlot.appliedPose.attachment;
 assert.ok(clip instanceof ClippingAttachment,"Spine runtime must parse a clipping attachment");
-assert.deepEqual(clip.bones,[1,1,1,1,2,1,2,1],"each contour vertex must retain its source bone index");
+assert.deepEqual(clip.bones,[1,1,1,1,1,2,1,2],"each contour vertex must retain its source bone index");
 assert.equal(clip.vertices.length,12,"four weighted vertices must decode to x/y/weight triplets");
 const world=()=>{
   const out=new Float32Array(clip.worldVerticesLength);
