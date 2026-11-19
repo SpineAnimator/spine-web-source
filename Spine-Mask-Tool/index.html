@@ -117,7 +117,13 @@ footer { min-height:32px; padding:4px 32px 10px; color:var(--muted); font-size:1
 /* Quick artist mode hides controls visually; Agent mode retains every existing DOM ID. */
 .mode-toggle { flex:0 0 auto; min-height:38px; padding:6px 14px; color:#d3d3d3; }
 .quick-action { grid-area:quick; display:flex; flex-direction:column; gap:8px; align-items:stretch; width:100%; max-width:640px; justify-self:center; }
+.quick-buttons { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,2fr); gap:8px; }
+.quick-action #quick-from-spine { min-height:60px; font-size:15px; font-weight:600; color:var(--text); border-color:#616161; }
 .quick-action #do-all { min-height:60px; font-size:18px; font-weight:600; }
+.quick-bridge-status { margin:0; font-size:12px; color:var(--muted); line-height:1.4; overflow-wrap:anywhere; }
+.quick-bridge-status[data-error=yes] { color:#e49c9c; }
+.quick-bridge-actions { display:flex; justify-content:center; gap:16px; font-size:12px; }
+.quick-bridge-actions a,.quick-bridge-actions button { min-height:0; padding:5px 7px; font-size:12px; }
 .quick-hint { margin:0; color:var(--muted); font-size:12px; text-align:center; line-height:1.5; }
 body:not(.agent-mode) .app-shell {
   max-width:1100px; margin:0 auto;
@@ -225,8 +231,16 @@ body.agent-mode .quick-action { display:none!important; }
     </section>
   </div>
   <div class="quick-action">
-    <button id="do-all" class="primary" type="button">Make all</button>
-    <p class="quick-hint">Open a Spine project or ZIP → create one clipping mask → download the complete project ZIP.</p>
+    <div class="quick-buttons">
+      <button id="quick-from-spine" type="button">From Spine</button>
+      <button id="do-all" class="primary" type="button">Make all</button>
+    </div>
+    <p id="quick-bridge-status" class="quick-bridge-status" role="status" aria-live="polite" hidden></p>
+    <div class="quick-bridge-actions">
+      <button id="quick-choose-project" type="button" hidden>Choose Spine project</button>
+      <a id="quick-install-bridge" href="https://github.com/SpineAnimator/Spine-Resize/releases/download/spine-mask-bridge-v1/Spine-Mask-Resize-Bridge.zip" target="_blank" rel="noopener noreferrer" hidden>Install Bridge</a>
+    </div>
+    <p class="quick-hint">From Spine reads the open editor through Bridge. Make all builds and downloads the mask ZIP.</p>
   </div>
   <div class="actions">
     <button id="generate" class="primary" type="button">Generate mask</button>
@@ -238,6 +252,6 @@ body.agent-mode .quick-action { display:none!important; }
   <div class="status-line"><p id="status" class="status" role="status" aria-live="polite"></p></div>
 </main>
 <footer>Local processing · Spine 4.3.26 · <a href="https://esotericsoftware.com/spine-clipping" rel="noopener" target="_blank">Spine clipping documentation</a></footer>
-<script type="module" src="./app.js?v=oneclick-20261118"></script>
+<script type="module" src="./app.js?v=simple-spine-import-20261119"></script>
 </body>
 </html>
