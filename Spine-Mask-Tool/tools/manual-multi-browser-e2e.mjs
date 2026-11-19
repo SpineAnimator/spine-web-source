@@ -54,14 +54,16 @@ try{
   });
   const texture=Buffer.from(png64,"base64");
   const scene={skeleton:{spine:"4.3.26",width:124,height:64,images:"./images/"},
-    bones:[{name:"root"},{name:"left",parent:"root",x:-30},{name:"right",parent:"root",x:30}],
+    bones:[{name:"root"},{name:"left",parent:"root",x:-30},{name:"right",parent:"root",x:30},{name:"spacer",parent:"root",y:120}],
     slots:[
       {name:"image_a",bone:"left",attachment:"partA"},
+      {name:"spacer",bone:"spacer",attachment:"partSpacer"},
       {name:"image_b",bone:"right",attachment:"partB"},
       {name:"hotspot",bone:"root",attachment:"hotspot"}
     ],
     skins:[{name:"default",attachments:{
       image_a:{partA:{type:"region",path:"part-a",width:48,height:48}},
+      spacer:{partSpacer:{type:"region",path:"spacer",width:8,height:8}},
       image_b:{partB:{type:"region",path:"part-b",width:48,height:48}},
       hotspot:{hotspot:{type:"region",path:"hotspot",width:8,height:8}}
     }}],animations:{idle:{bones:{left:{rotate:[{time:0,angle:0},{time:1,angle:25}]},right:{rotate:[{time:0,angle:0},{time:1,angle:-25}]}}}}};
@@ -72,6 +74,7 @@ try{
     {name:"scene.json",mimeType:"application/json",buffer:Buffer.from(JSON.stringify(scene))},
     {name:"part-a.png",mimeType:"image/png",buffer:texture},
     {name:"part-b.png",mimeType:"image/png",buffer:texture},
+    {name:"spacer.png",mimeType:"image/png",buffer:texture},
     {name:"hotspot.png",mimeType:"image/png",buffer:texture}
   ]);
   await page.waitForTimeout(1200);
@@ -89,7 +92,10 @@ try{
   const b=page.locator("#selection-tree label.tree-row").filter({hasText:"partB"}).locator("input");
   assert.equal(await a.isChecked(),true,"Selecting a bone must select its attached image");
   assert.equal(await b.isChecked(),true,"Selecting a slot must select its attached image");
+  const spacer=page.locator("#selection-tree label.tree-row").filter({hasText:"partSpacer"}).locator("input");
+  assert.equal(await spacer.isChecked(),false,"An unselected image between selected slots stays unselected");
   assert.match(await page.locator("#do-all").textContent(),/Сделать маску · 2/);
+  assert.match(await page.locator("#do-all").getAttribute("title"),/промежуточные слоты/);
   const wait=page.waitForEvent("download",{timeout:60000});
   await page.locator("#do-all").click();
   const download=await wait;
@@ -99,7 +105,7 @@ try{
   const py=[
     "import sys,zipfile,json",
     "z=zipfile.ZipFile(sys.argv[1]); n=z.namelist()",
-    "assert all(x in n for x in ['images/part-a.png','images/part-b.png','images/hotspot.png'])",
+    "assert all(x in n for x in ['images/part-a.png','images/part-b.png','images/spacer.png','images/hotspot.png'])",
     "p=next(x for x in n if x.endswith('-mask.json')); j=json.loads(z.read(p))",
     "clips=[a for s in j['skins'] for slot in s['attachments'].values() for a in slot.values() if a.get('type')=='clipping']",
     "assert len(clips)==1 and clips[0]['end']=='image_b'",
@@ -111,9 +117,11 @@ try{
     "assert j['animations']['idle']['bones']['left']['rotate'][-1]['angle']==25",
     "assert j['animations']['idle']['bones']['right']['rotate'][-1]['angle']==-25",
     "assert 3<=clips[0]['vertexCount']<=2500",
-    "assert [s['name'] for s in j['slots']][:3]==['auto_mask_multi','image_a','image_b']",
+    "assert [s['name'] for s in j['slots']][:4]==['auto_mask_multi','image_a','spacer','image_b']",
+    "assert j['skins'][0]['attachments']['spacer']['partSpacer']['path']=='spacer'",
     "assert j['skins'][0]['attachments']['hotspot']['hotspot']['path']=='hotspot'",
-    "print('PUBLIC_SITE_MANUAL_MULTI_OBJECT_ONE_CLIP_PASS',clips[0]['vertexCount'])"
+    "assert max(abs(v[i*5+3]) for i in range(count)) < 50, 'mask geometry must be built only around selected images, not the unselected spacer at y=120'",
+    "print('PUBLIC_SITE_MANUAL_NON_ADJACENT_MULTI_OBJECT_ONE_CLIP_PASS',clips[0]['vertexCount'])"
   ].join("; ");
   execFileSync("python3",["-c",py,zipPath],{stdio:"inherit"});
   assert.deepEqual(errors,[]);

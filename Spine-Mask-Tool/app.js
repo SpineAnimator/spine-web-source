@@ -66,7 +66,18 @@ function setTargets() {
 
 function boneMap(){return new Map((state.json?.bones||[]).map(b=>[b.name,b]));}
 function descendantsOf(name){const map=boneMap(),out=new Set([name]);let changed=true;while(changed){changed=false;for(const b of map.values())if(b.parent&&out.has(b.parent)&&!out.has(b.name)){out.add(b.name);changed=true;}}return out;}
-function updateMakeButton(){const n=state.selectedChoiceIndexes?.size||0;$("do-all").textContent=n?"Сделать маску · "+n:"Сделать маску";$("do-all").disabled=quickBusy||(!state.json&&!state.images.length&&!state.binary);}
+function updateMakeButton(){
+ const button=$("do-all"),n=state.selectedChoiceIndexes?.size||0;
+ button.textContent=n?"Сделать маску · "+n:"Сделать маску";
+ button.disabled=quickBusy||(!state.json&&!state.images.length&&!state.binary);
+ const slots=state.json?.slots||[];
+ const chosen=[...new Set(state.treeChoices.filter(e=>state.selectedChoiceIndexes.has(e.choiceIndex)).map(e=>e.choice.slot))];
+ const indices=chosen.map(name=>slots.findIndex(slot=>slot.name===name)).filter(i=>i>=0).sort((x,y)=>x-y);
+ const hasGap=indices.length>1&&indices.at(-1)-indices[0]+1>indices.length;
+ button.title=hasGap
+  ?"Одна маска покрывает диапазон от первого до последнего выбранного слота; промежуточные слоты тоже попадают под clipping внутри контура."
+  :"";
+}
 function syncTreeChecks(){const root=$("selection-tree");if(!root)return;for(const box of root.querySelectorAll('input[type="checkbox"]')){const type=box.dataset.treeType,id=box.dataset.treeId;let keys=[];if(type==="bone"){const d=descendantsOf(id);keys=state.treeChoices.filter(e=>{const s=state.json.slots.find(x=>x.name===e.choice.slot);return s&&d.has(s.bone);}).map(e=>e.choiceIndex);}else if(type==="slot")keys=state.treeChoices.filter(e=>e.choice.slot===id).map(e=>e.choiceIndex);else keys=[Number(id)];const count=keys.filter(k=>state.selectedChoiceIndexes.has(k)).length;box.checked=keys.length>0&&count===keys.length;box.indeterminate=count>0&&count<keys.length;}}
 function renderSelectionTree(){
  const root=$("selection-tree");if(!root)return;root.replaceChildren();state.selectedChoiceIndexes=new Set();state.treeChoices=[];
@@ -110,8 +121,7 @@ function commonBone(names,data){const chains=names.map(n=>{const a=[];let b=data
 function sourceForChoice(c){const names=[basename(c.path),basename(c.attachment)];const found=state.images.filter(x=>names.includes(basename(x.file.name)));if(found.length>1)throw Error("Несколько текстур имеют одинаковое имя: "+c.path);return found[0]||null;}
 function composeSelectedArtwork(entries){
  const slots=state.json.slots||[],bd=setupBoneMatrices(),selectedSlots=[...new Set(entries.map(e=>e.choice.slot))].sort((a,b)=>slots.findIndex(s=>s.name===a)-slots.findIndex(s=>s.name===b));
- const first=slots.findIndex(s=>s.name===selectedSlots[0]),last=slots.findIndex(s=>s.name===selectedSlots.at(-1)),selected=new Set(selectedSlots);
- for(let i=first;i<=last;i++)if(!selected.has(slots[i].name))throw Error("Выбери непрерывную группу слотов.");
+ const first=slots.findIndex(s=>s.name===selectedSlots[0]),last=slots.findIndex(s=>s.name===selectedSlots.at(-1));
  const names=selectedSlots.map(n=>slots.find(s=>s.name===n).bone),clipBone=commonBone(names,bd);if(!clipBone)throw Error("Нет общей родительской кости.");
  for(const name of names){
   let bone=bd.bones.get(name);
