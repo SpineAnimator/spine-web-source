@@ -1,0 +1,36 @@
+name: Spine Mask | browser Linux v2 API client
+on:
+  push:
+    branches: [main]
+    paths:
+      - Spine-Mask-Tool/linux-api.js
+      - Spine-Mask-Tool/app.js
+      - Spine-Mask-Tool/index.html
+      - Spine-Mask-Tool/tools/test-linux-api.mjs
+      - .github/workflows/verify-mask-linux-api.yml
+  pull_request:
+    paths:
+      - Spine-Mask-Tool/linux-api.js
+      - Spine-Mask-Tool/app.js
+      - Spine-Mask-Tool/index.html
+      - Spine-Mask-Tool/tools/test-linux-api.mjs
+      - .github/workflows/verify-mask-linux-api.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  browser-api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify browser transport, integrity and both interfaces
+        run: |
+          node --check Spine-Mask-Tool/linux-api.js
+          node --test Spine-Mask-Tool/tools/test-linux-api.mjs
+          echo 'SPINE_MASK_SITE_SERVER_API_CONTRACT_PASS'
