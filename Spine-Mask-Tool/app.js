@@ -551,7 +551,7 @@ async function doEverything() {
   } finally {
     quickBusy = false;
     button.disabled = false;
-    button.textContent = state.actionErrorLabel || (state.editorOpenResult === true ? "Открыто в Spine" : state.editorOpenResult === false ? "Ошибка Spine" : "Сделать маску");
+    button.textContent = state.actionErrorLabel || (state.editorOpenResult === true ? "Открыто в Spine" : state.editorOpenResult === "saved" ? "Сохранено" : state.editorOpenResult === false ? "Ошибка Spine" : "Сделать маску");
   }
 }
 async function verifyLinuxZip(zip=null){
@@ -997,7 +997,7 @@ async function connectEditor(auto=false,choose=false){
       bridgeNeedsUpdate=true;
       throw Error("Outdated Chrome native bridge. Update Bridge to continue.");
     }
-    const requiredCapabilities=["multi-slot-clipping","weighted-clipping","verified-editor-open"];
+    const requiredCapabilities=["multi-slot-clipping","weighted-clipping"];
     const availableCapabilities=Array.isArray(ping.capabilities)?ping.capabilities:[];
     const missingCapabilities=requiredCapabilities.filter(capability=>!availableCapabilities.includes(capability));
     if(missingCapabilities.length){
@@ -1088,8 +1088,8 @@ async function writeToEditor(epoch){
     await writeBytesToHost(started.stage,"mask.json",encoded);
     const saved=await requestBridge("commit_result",{session,stage:started.stage,openEditor:true},210000);
     if(saved?.imported&&saved?.opened){state.editorOpenResult=true;bridgeStatus("Mask applied · "+saved.project+" opened in local Spine Editor.");}
-    else if(saved?.imported){state.editorOpenResult=false;bridgeStatus("New .spine project saved; automatic editor opening was unavailable.",true);}
-    else if(saved?.saved){state.editorOpenResult=false;bridgeStatus("New Spine JSON saved. Native editor import was unavailable.",true);}
+    else if(saved?.imported){state.editorOpenResult="saved";bridgeStatus("New .spine project saved; automatic editor opening could not be verified on this platform.",true);}
+    else if(saved?.saved){state.editorOpenResult="saved";bridgeStatus("New Spine JSON saved. Native editor import was unavailable.",true);}
     else throw Error("Spine editor did not confirm output.");
   }catch(error){state.editorOpenResult=false;bridgeStatus("Local Spine export: "+error.message,true);}
   finally{
