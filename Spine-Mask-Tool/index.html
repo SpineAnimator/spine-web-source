@@ -148,6 +148,31 @@ body.agent-mode .quick-action { display:none!important; }
   body:not(.agent-mode) .app-shell { grid-template-rows:auto minmax(260px,1fr) auto auto; }
   body:not(.agent-mode) .preview-panel { min-height:260px; }
 }
+
+.selection-panel{display:none;min-width:0;min-height:0;background:#000;border:1px solid var(--border);padding:10px;overflow:auto;scrollbar-color:#444 #000}
+.selection-tree{display:flex;flex-direction:column;gap:2px;min-height:0}
+.tree-branch{display:flex;flex-direction:column;gap:2px}
+.tree-children{display:flex;flex-direction:column;gap:2px;margin-left:14px;padding-left:8px;border-left:1px solid #292929}
+.tree-row{display:flex;align-items:center;gap:9px;min-height:30px;padding:3px 7px;color:#ddd;font-size:12px;cursor:pointer;user-select:none}
+.tree-row:hover{background:#181818}
+.tree-row input{width:15px;height:15px;accent-color:#ddd;flex:0 0 auto}
+body:not(.agent-mode) .app-shell{max-width:1500px;grid-template-columns:minmax(0,1fr) minmax(280px,390px);grid-template-rows:44px minmax(0,1fr) auto;grid-template-areas:"header header" "panels tree" "quick quick";gap:12px;padding:12px}
+body:not(.agent-mode) .selection-panel{display:block;grid-area:tree}
+body:not(.agent-mode) .panels{grid-area:panels;min-width:0}
+body:not(.agent-mode) .preview-panel{min-height:0;padding:8px}
+body:not(.agent-mode) .preview-meta,body:not(.agent-mode) .preview-head{display:none!important}
+body:not(.agent-mode) .stage{min-height:0}
+body:not(.agent-mode) .quick-action{grid-area:quick;max-width:100%;flex-direction:row;align-items:stretch}
+body:not(.agent-mode) .quick-buttons{flex:1;grid-template-columns:minmax(0,1fr) minmax(0,2fr)}
+body:not(.agent-mode) .quick-bridge-status,body:not(.agent-mode) .status-line{display:none!important}
+body:not(.agent-mode) .quick-hint{display:none!important}
+body:not(.agent-mode) .version{display:none}
+body:not(.agent-mode) .quick-bridge-actions{align-items:center;gap:8px}
+body:not(.agent-mode) .quick-bridge-actions a{display:inline-flex;align-items:center;justify-content:center;text-decoration:none;border:1px solid var(--border);background:#000;color:#ddd;padding:8px 12px;min-height:44px}
+body:not(.agent-mode) .quick-bridge-actions a[hidden],body:not(.agent-mode) #quick-choose-project[hidden]{display:none!important}
+body:not(.agent-mode) .quick-bridge-actions button,body:not(.agent-mode) .quick-bridge-actions a{font-size:12px}
+body:not(.agent-mode) .toolbar h1{font-size:1.1rem}
+@media(max-width:900px){body:not(.agent-mode) .app-shell{grid-template-columns:minmax(0,1fr);grid-template-rows:44px minmax(300px,1fr) minmax(180px,35vh) auto;grid-template-areas:"header" "panels" "tree" "quick"}body:not(.agent-mode) .selection-panel{max-height:35vh}body:not(.agent-mode) .quick-action{flex-direction:column}body:not(.agent-mode) .quick-buttons{width:100%}}
 </style>
 </head>
 <body>
@@ -169,6 +194,9 @@ body.agent-mode .quick-action { display:none!important; }
     <input type="file" id="project-folder" webkitdirectory directory multiple hidden aria-label="Choose Spine project folder">
   </div>
   <div class="panels">
+    <section class="selection-panel" aria-label="Spine hierarchy">
+      <div id="selection-tree" class="selection-tree"></div>
+    </section>
     <section class="preview-panel" aria-label="Source and mask preview">
       <div class="preview-head"><span>.spine .json .skel .zip .atlas .png .webp .jpg</span></div>
       <label class="file-zone">
@@ -234,15 +262,14 @@ body.agent-mode .quick-action { display:none!important; }
   </div>
   <div class="quick-action">
     <div class="quick-buttons">
-      <button id="quick-from-spine" type="button">From Spine</button>
-      <button id="do-all" class="primary" type="button">Make all</button>
+      <button id="quick-from-spine" type="button">Spine</button>
+      <button id="do-all" class="primary" type="button">Сделать маску</button>
     </div>
     <p id="quick-bridge-status" class="quick-bridge-status" role="status" aria-live="polite" hidden></p>
     <div class="quick-bridge-actions">
       <button id="quick-choose-project" type="button" hidden>Choose Spine project</button>
       <a id="quick-install-bridge" href="https://github.com/SpineAnimator/Spine-Resize/releases/download/spine-mask-bridge-v1/Spine-Mask-Resize-Bridge.zip" target="_blank" rel="noopener noreferrer" download>Install Bridge / Extension</a>
     </div>
-    <p class="quick-hint">From Spine reads the local editor. Make all downloads the ZIP and sends a copy to private Linux Spine CI for verification.</p>
   </div>
   <div class="actions">
     <button id="generate" class="primary" type="button">Generate mask</button>
@@ -253,7 +280,7 @@ body.agent-mode .quick-action { display:none!important; }
   </div>
   <div class="status-line"><p id="status" class="status" role="status" aria-live="polite"></p><a id="linux-result-link" hidden download="spine-mask-linux-native.zip">Download Linux ZIP</a></div>
 </main>
-<footer>Local processing · Spine 4.3.26 · <a href="https://esotericsoftware.com/spine-clipping" rel="noopener" target="_blank">Spine clipping documentation</a></footer>
-<script type="module" src="./app.js?v=fullproject-linux-ci-20261119"></script>
+
+<script type="module" src="./app.js?v=manual-multi-20261119"></script>
 </body>
 </html>
