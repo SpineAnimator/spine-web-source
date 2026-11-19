@@ -1,4 +1,4 @@
-import { imageMask, availableRegions, exportJson, exportLocalEditorMask, exportLocalEditorMultiMask, maskVertices } from "./core.js?v=73a39f59";
+import { imageMask, availableRegions, exportJson, exportLocalEditorMask, exportLocalEditorMultiMask, maskVertices } from "./core.js?v=manual-multi-20261119";
 import { submitSpineProject, pollSpineResult } from "./linux-api.js?v=20261119";
 
 const $ = id => document.getElementById(id);
@@ -53,7 +53,8 @@ function setTargets() {
   $("target-row").hidden = choices.length === 0;
   if (state.json && choices.length === 0)
     status("Skeleton loaded, but no region attachments found. Provide a region attachment in Spine.", true);
-  renderSelectionTree();\n}
+  renderSelectionTree();
+}
 
 function boneMap(){return new Map((state.json?.bones||[]).map(b=>[b.name,b]));}
 function descendantsOf(name){const map=boneMap(),out=new Set([name]);let changed=true;while(changed){changed=false;for(const b of map.values())if(b.parent&&out.has(b.parent)&&!out.has(b.name)){out.add(b.name);changed=true;}}return out;}
