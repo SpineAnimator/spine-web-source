@@ -419,17 +419,25 @@ async function doEverything() {
     status("This binary Spine project needs the native Bridge or an exported JSON with images.", true);
     return;
   }
-  if (!state.source || (state.json && !selectedRegion())) {
+  if (state.json && !state.selectedChoiceIndexes.size) {
+    $("do-all").textContent = "Выберите объект";
+    return;
+  }
+  if (!state.json && !state.source) {
     setAgentMode(true);
-    status("Cannot safely identify the image to mask. Choose an exact region and texture in Agents, then switch to Simple and run Make all.", true);
+    status("Select a source image first.", true);
     return;
   }
   quickBusy = true;
   const button = $("do-all");
   button.disabled = true;
-  button.textContent = "Working…";
+  button.textContent = "Создаю…";
   try {
-    if (!state.result) await generate();
+    if (state.json) {
+      await generateSelectedObjects();
+      if (!state.result) throw Error("Mask generation failed.");
+      if (state.bridge) await writeToEditor(++bridgeWriteEpoch);
+    } else if (!state.result) await generate();
     if (!state.result) throw Error($("status").textContent || "Mask validation failed.");
     const zip = await buildPreservedSpineProjectZip();
     downloadBlob(new Blob([zip], { type: "application/zip" }),
@@ -442,7 +450,7 @@ async function doEverything() {
   } finally {
     quickBusy = false;
     button.disabled = false;
-    button.textContent = "Make all";
+    button.textContent = "Сделать маску";
   }
 }
 async function verifyLinuxZip(zip=null){
@@ -945,11 +953,15 @@ async function writeToEditor(epoch){
   bridgeWriterBusy=true;
   const {session}=state.bridge;
   try {
-    const source=state.source,mask=state.result.mask,selection=selectedRegion();
-    if(!selection)throw Error("Select a valid region before native export.");
-    const sw=source.width,sh=source.height;
-    const points=mask.points.map(([x,y])=>[x*sw/mask.analysisWidth,y*sh/mask.analysisHeight]);
-    const merged=exportLocalEditorMask(state.json,selection,points,sw,sh);
+    let merged;
+    if(state.result.multi) merged={json:state.result.json};
+    else {
+      const source=state.source,mask=state.result.mask,selection=selectedRegion();
+      if(!selection)throw Error("Select a valid region before native export.");
+      const sw=source.width,sh=source.height;
+      const points=mask.points.map(([x,y])=>[x*sw/mask.analysisWidth,y*sh/mask.analysisHeight]);
+      merged=exportLocalEditorMask(state.json,selection,points,sw,sh);
+    }
     // Send only the modified Spine JSON. The original region and its PNG
     // remain untouched. One clipping attachment clips the selected target.
     const encoded=new TextEncoder().encode(JSON.stringify(merged.json));
