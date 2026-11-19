@@ -658,8 +658,16 @@ export function exportLocalEditorMultiMask(original, selectedSlots, points, clip
   if(!boneNames.has(clipBone))throw Error("Common parent bone is missing.");
   const wanted=[...new Set(selectedSlots)];
   const slots=json.slots||[];
-  let indices=wanted.map(name=>slots.findIndex(s=>s.name===name)).sort((a,b)=>a-b);
-  if(indices.some(i=>i<0))throw Error("A selected slot no longer exists.");
+  if(points.some(p=>!Array.isArray(p)||p.length!==2||!Number.isFinite(p[0])||!Number.isFinite(p[1])))
+    throw Error("Clipping vertices must be finite coordinate pairs.");
+  for(const name of wanted)if(!slots.some(s=>s.name===name))
+    throw Error("A selected slot no longer exists.");
+  for(const name of wanted){
+    const slot=slots.find(s=>s.name===name);
+    let bone=(json.bones||[]).find(b=>b.name===slot.bone),valid=false;
+    while(bone){if(bone.name===clipBone){valid=true;break;}bone=bone.parent?(json.bones||[]).find(b=>b.name===bone.parent):null;}
+    if(!valid)throw Error("The clipping bone must be a common ancestor of every selected slot.");
+  }
   const first=slots.findIndex(s=>s.name===firstSlot);
   const last=slots.findIndex(s=>s.name===lastSlot);
   if(first<0||last<first)throw Error("Invalid clipping range.");
