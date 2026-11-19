@@ -87,9 +87,15 @@ try{
   await page.waitForSelector("#selection-tree .tree-row",{timeout:20000});
   const leftBone=page.locator('#selection-tree input[data-tree-type="bone"][data-tree-id="left"]');
   const rightSlot=page.locator('#selection-tree input[data-tree-type="slot"][data-tree-id="image_b"]');
-  await leftBone.check();await rightSlot.check();
   const a=page.locator("#selection-tree label.tree-row").filter({hasText:"partA"}).locator("input");
   const b=page.locator("#selection-tree label.tree-row").filter({hasText:"partB"}).locator("input");
+  await a.check();
+  assert.equal(await a.isChecked(),true,"An individual image attachment must be selectable");
+  assert.equal(await b.isChecked(),false,"Selecting one image must not select another image");
+  assert.match(await page.locator("#do-all").textContent(),/Сделать маску · 1/);
+  await a.uncheck();
+  await leftBone.check();
+  await rightSlot.check();
   assert.equal(await a.isChecked(),true,"Selecting a bone must select its attached image");
   assert.equal(await b.isChecked(),true,"Selecting a slot must select its attached image");
   const spacer=page.locator("#selection-tree label.tree-row").filter({hasText:"partSpacer"}).locator("input");
