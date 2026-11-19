@@ -77,7 +77,27 @@ function renderSelectionTree(){
 }
 function multiplyMatrix(a,b){return[a[0]*b[0]+a[2]*b[1],a[1]*b[0]+a[3]*b[1],a[0]*b[2]+a[2]*b[3],a[1]*b[2]+a[3]*b[3],a[0]*b[4]+a[2]*b[5]+a[4],a[1]*b[4]+a[3]*b[5]+a[5]];}
 function invertMatrix(m){const z=m[0]*m[3]-m[1]*m[2];if(Math.abs(z)<1e-10)throw Error("Invalid bone transform.");const a=m[3]/z,b=-m[1]/z,c=-m[2]/z,d=m[0]/z;return[a,b,c,d,-a*m[4]-c*m[5],-b*m[4]-d*m[5]];}
-function setupBoneMatrices(){const bones=boneMap(),cache=new Map(),active=new Set();const get=name=>{if(cache.has(name))return cache.get(name);const b=bones.get(name);if(!b)throw Error("Missing selected bone: "+name);if(active.has(name))throw Error("Bone cycle.");active.add(name);const r=(Number(b.rotation)||0)*Math.PI/180,sx=Number(b.scaleX??1),sy=Number(b.scaleY??1),local=[Math.cos(r)*sx,Math.sin(r)*sx,-Math.sin(r)*sy,Math.cos(r)*sy,Number(b.x)||0,Number(b.y)||0];const m=b.parent?multiplyMatrix(get(b.parent),local):local;active.delete(name);cache.set(name,m);return m;};for(const n of bones.keys())get(n);return{bones,cache};}
+function setupBoneMatrices(){
+ const bones=boneMap(),cache=new Map(),active=new Set();
+ const get=name=>{
+  if(cache.has(name))return cache.get(name);
+  const b=bones.get(name);if(!b)throw Error("Missing selected bone: "+name);
+  if(active.has(name))throw Error("Bone cycle.");
+  active.add(name);
+  const r=(Number(b.rotation)||0)*Math.PI/180;
+  const shx=(Number(b.shearX)||0)*Math.PI/180,shy=(Number(b.shearY)||0)*Math.PI/180;
+  const sx=Number(b.scaleX??1),sy=Number(b.scaleY??1);
+  const local=[
+   Math.cos(r+shx)*sx,Math.sin(r+shx)*sx,
+   Math.cos(r+Math.PI/2+shy)*sy,Math.sin(r+Math.PI/2+shy)*sy,
+   Number(b.x)||0,Number(b.y)||0
+  ];
+  const m=b.parent?multiplyMatrix(get(b.parent),local):local;
+  active.delete(name);cache.set(name,m);return m;
+ };
+ for(const n of bones.keys())get(n);
+ return{bones,cache};
+}
 function commonBone(names,data){const chains=names.map(n=>{const a=[];let b=data.bones.get(n);while(b){a.push(b.name);b=b.parent?data.bones.get(b.parent):null;}return a;});return(chains[0]||[]).find(n=>chains.every(c=>c.includes(n)));}
 function sourceForChoice(c){const names=[basename(c.path),basename(c.attachment)];const found=state.images.filter(x=>names.includes(basename(x.file.name)));if(found.length>1)throw Error("Несколько текстур имеют одинаковое имя: "+c.path);return found[0]||null;}
 function composeSelectedArtwork(entries){
@@ -85,23 +105,93 @@ function composeSelectedArtwork(entries){
  const first=slots.findIndex(s=>s.name===selectedSlots[0]),last=slots.findIndex(s=>s.name===selectedSlots.at(-1)),selected=new Set(selectedSlots);
  for(let i=first;i<=last;i++)if(!selected.has(slots[i].name))throw Error("Выбери непрерывную группу слотов.");
  const names=selectedSlots.map(n=>slots.find(s=>s.name===n).bone),clipBone=commonBone(names,bd);if(!clipBone)throw Error("Нет общей родительской кости.");
+ for(const name of names){
+  let bone=bd.bones.get(name);
+  while(bone){
+   if(bone.transform&&bone.transform!=="normal")
+    throw Error("Для маски по нескольким костям пока не поддерживается режим наследования "+bone.transform+" у кости "+bone.name+".");
+   bone=bone.parent?bd.bones.get(bone.parent):null;
+  }
+ }
  const inv=invertMatrix(bd.cache.get(clipBone)),items=[];
  for(const e of entries){const c=e.choice,slot=slots.find(s=>s.name===c.slot),asset=sourceForChoice(c);if(!asset)throw Error("Нет текстуры для "+c.attachment);const im=asset.image,d=c.data||{},w=Number(d.width)||im.width,h=Number(d.height)||im.height,r=(Number(d.rotation)||0)*Math.PI/180,sx=Number(d.scaleX??1),sy=Number(d.scaleY??1),co=Math.cos(r),si=Math.sin(r);
   const a=co*w*sx/im.width,b=si*w*sx/im.width,cc=si*h*sy/im.height,dd=-co*h*sy/im.height,x=Number(d.x)||0,y=Number(d.y)||0;
   const attach=[a,b,cc,dd,x-a*im.width/2-cc*im.height/2,y-b*im.width/2-dd*im.height/2],m=multiplyMatrix(inv,multiplyMatrix(bd.cache.get(slot.bone),attach));
-  const corners=[[0,0],[im.width,0],[0,im.height],[im.width,im.height]].map(([px,py])=>[m[0]*px+m[2]*py+m[4],m[1]*px+m[3]*py+m[5]]);items.push({im,m,corners});
+  const corners=[[0,0],[im.width,0],[0,im.height],[im.width,im.height]].map(([px,py])=>[m[0]*px+m[2]*py+m[4],m[1]*px+m[3]*py+m[5]]);items.push({im,m,corners,boneName:slot.bone,slotIndex:slots.findIndex(s=>s.name===slot.name)});
  }
  const xs=items.flatMap(x=>x.corners.map(p=>p[0])),ys=items.flatMap(x=>x.corners.map(p=>p[1])),minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys),scale=Math.min(1,1400/Math.max(maxX-minX,maxY-minY)),width=Math.max(1,Math.ceil((maxX-minX)*scale)),height=Math.max(1,Math.ceil((maxY-minY)*scale));
  if(width*height>2400000)throw Error("Selected artwork too large.");
  const canvas=document.createElement("canvas");canvas.width=width;canvas.height=height;const ctx=canvas.getContext("2d",{willReadFrequently:true});
  for(const item of items){const m=item.m;ctx.setTransform(m[0]*scale,-m[1]*scale,m[2]*scale,-m[3]*scale,(m[4]-minX)*scale,(maxY-m[5])*scale);ctx.drawImage(item.im,0,0);}ctx.setTransform(1,0,0,1,0,0);
- return{canvas,minX,maxY,scale,clipBone,selectedSlots,firstSlot:selectedSlots[0],lastSlot:selectedSlots.at(-1)};
+ return{canvas,minX,maxY,scale,clipBone,selectedSlots,firstSlot:selectedSlots[0],lastSlot:selectedSlots.at(-1),items,boneData:bd};
+}
+function pointThroughMatrix(matrix,point){
+ return[
+  matrix[0]*point[0]+matrix[2]*point[1]+matrix[4],
+  matrix[1]*point[0]+matrix[3]*point[1]+matrix[5]
+ ];
+}
+// Spine 4.3 supports weighted clipping vertices. Assign each outline point to
+// the selected source bone whose visible texel generated the nearest contour
+// point, then express that point in the source bone's setup-pose coordinates.
+function weightedMaskVertices(composition,maskPoints){
+ const bones=state.json.bones||[],worldFromClip=composition.boneData.cache.get(composition.clipBone);
+ if(!worldFromClip)throw Error("Common clipping bone transform is unavailable.");
+ const sources=composition.items.map(item=>{
+  const boneIndex=bones.findIndex(b=>b.name===item.boneName);
+  if(boneIndex<0)throw Error("Selected image bone is missing from the skeleton.");
+  const imageCanvas=document.createElement("canvas");
+  imageCanvas.width=item.im.width;imageCanvas.height=item.im.height;
+  const imageContext=imageCanvas.getContext("2d",{willReadFrequently:true});
+  imageContext.drawImage(item.im,0,0);
+  const alpha=imageContext.getImageData(0,0,imageCanvas.width,imageCanvas.height).data;
+  const boneWorld=composition.boneData.cache.get(item.boneName);
+  if(!boneWorld)throw Error("Selected image bone transform is unavailable.");
+  return{
+   ...item,boneIndex,alpha,imageFromClip:invertMatrix(item.m),
+   boneFromClip:multiplyMatrix(invertMatrix(boneWorld),worldFromClip)
+  };
+ });
+ return maskPoints.map(([px,py])=>{
+  const point=[composition.minX+px/composition.scale,composition.maxY-py/composition.scale];
+  let best=null;
+  for(const source of sources){
+   const imagePoint=pointThroughMatrix(source.imageFromClip,point);
+   const baseX=Math.floor(imagePoint[0]),baseY=Math.floor(imagePoint[1]);
+   let nearest=null;
+   for(let dy=-4;dy<=4;dy++)for(let dx=-4;dx<=4;dx++){
+    const x=baseX+dx,y=baseY+dy;
+    if(x<0||y<0||x>=source.im.width||y>=source.im.height)continue;
+    if(source.alpha[(y*source.im.width+x)*4+3]<8)continue;
+    const candidate=pointThroughMatrix(source.m,[x+0.5,y+0.5]);
+    const distance=(candidate[0]-point[0])**2+(candidate[1]-point[1])**2;
+    if(!nearest||distance<nearest.distance)nearest={distance};
+   }
+   // Bridge/slit contour points may lie in the transparent gap between images.
+   // In that case, bind to the nearest edge of the closest selected region.
+   if(!nearest){
+    const x=Math.max(0,Math.min(source.im.width-1,imagePoint[0]));
+    const y=Math.max(0,Math.min(source.im.height-1,imagePoint[1]));
+    const candidate=pointThroughMatrix(source.m,[x+0.5,y+0.5]);
+    nearest={distance:(candidate[0]-point[0])**2+(candidate[1]-point[1])**2};
+   }
+   if(!best||nearest.distance<best.distance||
+      (nearest.distance===best.distance&&source.slotIndex>best.source.slotIndex))
+    best={distance:nearest.distance,source};
+  }
+  if(!best)throw Error("Could not assign a clipping vertex to a selected image bone.");
+  const local=pointThroughMatrix(best.source.boneFromClip,point);
+  return{influences:[{boneIndex:best.source.boneIndex,x:local[0],y:local[1],weight:1}]};
+ });
 }
 async function generateSelectedObjects(){
  const entries=state.treeChoices.filter(e=>state.selectedChoiceIndexes.has(e.choiceIndex));if(!entries.length)throw Error("Выбери объект в дереве.");
  const c=composeSelectedArtwork(entries),ctx=c.canvas.getContext("2d",{willReadFrequently:true}),mask=imageMask(ctx.getImageData(0,0,c.canvas.width,c.canvas.height),{highlightFaces:$("highlight-edges").checked});
- const points=mask.points.map(([x,y])=>[c.minX+x/c.scale,c.maxY-y/c.scale]),out=exportLocalEditorMultiMask(state.json,c.selectedSlots,points,c.clipBone,c.firstSlot,c.lastSlot);
- state.source=c.canvas;state.sourceFile=null;state.result={mask,json:out.json,slot:out.clippingSlot,imageOnly:false,multi:true,selectedSlots:c.selectedSlots,clipBone:c.clipBone};
+ const points=mask.points.map(([x,y])=>[c.minX+x/c.scale,c.maxY-y/c.scale]);
+ const distinctBones=new Set(c.items.map(item=>item.boneName));
+ const weighted=distinctBones.size>1?weightedMaskVertices(c,mask.points):null;
+ const out=exportLocalEditorMultiMask(state.json,c.selectedSlots,points,c.clipBone,c.firstSlot,c.lastSlot,weighted);
+ state.source=c.canvas;state.sourceFile=null;state.result={mask,json:out.json,slot:out.clippingSlot,imageOnly:false,multi:true,selectedSlots:c.selectedSlots,clipBone:c.clipBone,weightedBones:distinctBones.size};
  showPreview(mask);$("download-json").disabled=false;$("native-preview").disabled=false;$("download-spine-zip").disabled=false;$("download-png").hidden=true;$("summary").textContent="ONE CLIPPING MASK · "+mask.stats.vertices+" vertices";status("Mask ready.");
 }
 

@@ -649,7 +649,7 @@ export function exportJson(original, target, points, sourceW, sourceH) {
 
 // Build one clipping attachment for a manually selected, contiguous draw-order range.
 // Vertices are already expressed in the selected common ancestor bone's local space.
-export function exportLocalEditorMultiMask(original, selectedSlots, points, clipBone, firstSlot, lastSlot) {
+export function exportLocalEditorMultiMask(original, selectedSlots, points, clipBone, firstSlot, lastSlot, weightedVertices = null) {
   if(!original||!Array.isArray(selectedSlots)||!selectedSlots.length||
      !Array.isArray(points)||points.length<3||points.length>2500)
     throw Error("A project, selected objects and a valid mask are required.");
@@ -660,6 +660,25 @@ export function exportLocalEditorMultiMask(original, selectedSlots, points, clip
   const slots=json.slots||[];
   if(points.some(p=>!Array.isArray(p)||p.length!==2||!Number.isFinite(p[0])||!Number.isFinite(p[1])))
     throw Error("Clipping vertices must be finite coordinate pairs.");
+  if(weightedVertices!==null){
+    const bones=json.bones||[];
+    if(!Array.isArray(weightedVertices)||weightedVertices.length!==points.length)
+      throw Error("Weighted clipping vertices must match the polygon vertex count.");
+    for(const vertex of weightedVertices){
+      const influences=vertex?.influences;
+      if(!Array.isArray(influences)||influences.length<1||influences.length>4)
+        throw Error("Each weighted clipping vertex must have 1–4 bone influences.");
+      let total=0;
+      for(const influence of influences){
+        if(!Number.isInteger(influence.boneIndex)||influence.boneIndex<0||influence.boneIndex>=bones.length||
+           !Number.isFinite(influence.x)||!Number.isFinite(influence.y)||
+           !Number.isFinite(influence.weight)||influence.weight<=0||influence.weight>1)
+          throw Error("Invalid weighted clipping vertex influence.");
+        total+=influence.weight;
+      }
+      if(Math.abs(total-1)>0.001)throw Error("Clipping vertex bone weights must sum to 1.");
+    }
+  }
   for(const name of wanted)if(!slots.some(s=>s.name===name))
     throw Error("A selected slot no longer exists.");
   for(const name of wanted){
@@ -702,8 +721,15 @@ export function exportLocalEditorMultiMask(original, selectedSlots, points, clip
   }
   const startIndex=json.slots.findIndex(s=>s.name===firstSlot);
   const endIndex=json.slots.findIndex(s=>s.name===lastSlot);
-  const clip={type:"clipping",end:lastSlot,vertexCount:points.length,
-    vertices:points.flatMap(([x,y])=>[round(x),round(y)])};
+  const encodedVertices=weightedVertices
+    ? weightedVertices.flatMap(vertex=>[
+        vertex.influences.length,
+        ...vertex.influences.flatMap(influence=>[
+          influence.boneIndex,round(influence.x),round(influence.y),round(influence.weight)
+        ])
+      ])
+    : points.flatMap(([x,y])=>[round(x),round(y)]);
+  const clip={type:"clipping",end:lastSlot,vertexCount:points.length,vertices:encodedVertices};
   const base="auto_mask_multi";
   if(!generated.length){
     let n=1;

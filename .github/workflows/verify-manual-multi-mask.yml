@@ -19,7 +19,35 @@ on:
 permissions:
   contents: read
 jobs:
+  branch-local-multi-object-ui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install isolated Playwright Chromium
+        run: |
+          npm install --prefix "$RUNNER_TEMP/mask-ui" --no-audit --no-fund --silent playwright@1.56.1
+          "$RUNNER_TEMP/mask-ui/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Serve this branch and verify weighted multi-bone mask
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m http.server 8765 --directory . > "$RUNNER_TEMP/mask-ui-server.log" 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          for i in {1..20}; do
+            curl --fail --silent http://127.0.0.1:8765/Spine-Mask-Tool/ >/dev/null && break
+            sleep 1
+          done
+          SPINE_MASK_TEST_URL=http://127.0.0.1:8765/Spine-Mask-Tool/ node Spine-Mask-Tool/tools/manual-multi-browser-e2e.mjs
+
   live-public-site-multi-object-ui:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
@@ -93,6 +121,45 @@ jobs:
           assert.throws(()=>core.exportLocalEditorMultiMask(
             original,['image_a','tail'],polygon,'root','image_a','tail'),
             /continuous selected slot range/);
+          const weightedOriginal={
+            skeleton:{spine:'4.3.26'},
+            bones:[{name:'root'},{name:'left',parent:'root'},{name:'right',parent:'root'}],
+            slots:[
+              {name:'image_a',bone:'left',attachment:'a'},
+              {name:'image_b',bone:'right',attachment:'b'}
+            ],
+            skins:[{name:'default',attachments:{
+              image_a:{a:{type:'region',path:'a'}},
+              image_b:{b:{type:'region',path:'b'}}
+            }}],
+            animations:{idle:{bones:{
+              left:{rotate:[{time:0,angle:0},{time:1,angle:25}]},
+              right:{rotate:[{time:0,angle:0},{time:1,angle:-25}]}
+            }}}
+          };
+          const weighted=[
+            {influences:[{boneIndex:1,x:1,y:2,weight:1}]},
+            {influences:[{boneIndex:1,x:3,y:4,weight:1}]},
+            {influences:[{boneIndex:2,x:5,y:6,weight:1}]},
+            {influences:[{boneIndex:2,x:7,y:8,weight:1}]}
+          ];
+          const weightedResult=core.exportLocalEditorMultiMask(
+            weightedOriginal,['image_a','image_b'],polygon,'root','image_a','image_b',weighted);
+          const weightedClip=weightedResult.json.skins[0].attachments.auto_mask_multi.clip;
+          assert.equal(weightedClip.vertexCount,4);
+          assert.equal(weightedClip.vertices.length,20);
+          assert.deepEqual(weightedClip.vertices.slice(0,5),[1,1,1,2,1]);
+          assert.deepEqual(weightedClip.vertices.slice(10,15),[1,2,5,6,1]);
+          assert.throws(()=>core.exportLocalEditorMultiMask(
+            weightedOriginal,['image_a','image_b'],polygon,'root','image_a','image_b',
+            weighted.slice(0,3)),/match the polygon vertex count/);
+          assert.throws(()=>core.exportLocalEditorMultiMask(
+            weightedOriginal,['image_a','image_b'],polygon,'root','image_a','image_b',
+            weighted.map(v=>({influences:[{...v.influences[0],weight:0.5}]}))),
+            /weights must sum to 1/);
+          console.log('SPINE_MASK_WEIGHTED_MULTI_BONE_CLIP_PASS',{
+            vertices:weightedClip.vertexCount,bones:[...new Set(weightedClip.vertices.filter((_,i)=>i%5===1))]
+          });
           console.log('SPINE_MASK_MANUAL_MULTI_OBJECT_SINGLE_CLIP_PASS',{
             slots:result.json.slots.length,clipVertices:clips[0].vertexCount,
             commonBone:result.clipBone,clipEnd:clips[0].end
