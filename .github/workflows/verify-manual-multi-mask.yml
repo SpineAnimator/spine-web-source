@@ -118,9 +118,14 @@ jobs:
           const repeatedClips=repeated.json.skins.flatMap(s=>Object.values(s.attachments))
             .flatMap(slot=>Object.values(slot)).filter(a=>a?.type==='clipping');
           assert.equal(repeatedClips.length,1);
-          assert.throws(()=>core.exportLocalEditorMultiMask(
-            original,['image_a','tail'],polygon,'root','image_a','tail'),
-            /continuous selected slot range/);
+          const nonAdjacent=core.exportLocalEditorMultiMask(
+            original,['image_a','tail'],polygon,'root','image_a','tail');
+          const nonAdjacentClips=nonAdjacent.json.skins.flatMap(s=>Object.values(s.attachments))
+            .flatMap(slot=>Object.values(slot)).filter(a=>a?.type==='clipping');
+          assert.equal(nonAdjacentClips.length,1,'non-adjacent selections still create one clipping attachment');
+          assert.equal(nonAdjacentClips[0].end,'tail','one clip spans first through last selected slot');
+          assert.ok(nonAdjacent.json.slots.some(s=>s.name==='image_b'),
+            'intermediate unselected slots remain intact in the project');
           const weightedOriginal={
             skeleton:{spine:'4.3.26'},
             bones:[{name:'root'},{name:'left',parent:'root'},{name:'right',parent:'root'}],
