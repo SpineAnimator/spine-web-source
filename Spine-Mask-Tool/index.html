@@ -215,7 +215,7 @@ body.agent-mode .quick-action { display:none!important; }
         <h2>Native render</h2>
         <label class="field" for="native-fill">Second image (optional)</label>
         <input id="native-fill" type="file" accept="image/png,image/webp,image/jpeg" aria-label="Image shown through the clipping mask">
-        <div class="downloads"><button id="native-preview" disabled>Render in Spine Editor 4.3.26</button></div>
+        <div class="downloads"><button id="native-preview" disabled>Render in Spine Editor 4.3.26</button><button id="linux-verify" type="button">Verify full project in Linux CI</button></div>
         <p id="native-status" class="status" role="status" aria-live="polite"></p>
         <div id="native-result" hidden>
           <h2>Native Spine Render</h2>
@@ -240,7 +240,7 @@ body.agent-mode .quick-action { display:none!important; }
       <button id="quick-choose-project" type="button" hidden>Choose Spine project</button>
       <a id="quick-install-bridge" href="https://github.com/SpineAnimator/Spine-Resize/releases/download/spine-mask-bridge-v1/Spine-Mask-Resize-Bridge.zip" target="_blank" rel="noopener noreferrer" download>Install Bridge / Extension</a>
     </div>
-    <p class="quick-hint">From Spine reads the open editor through Bridge. Make all builds and downloads the mask ZIP.</p>
+    <p class="quick-hint">From Spine reads the local editor. Make all downloads the ZIP and sends a copy to private Linux Spine CI for verification.</p>
   </div>
   <div class="actions">
     <button id="generate" class="primary" type="button">Generate mask</button>
@@ -249,9 +249,9 @@ body.agent-mode .quick-action { display:none!important; }
     <button id="download-json" disabled type="button">Clipping JSON</button>
     <button id="download-png" hidden type="button">image.png</button>
   </div>
-  <div class="status-line"><p id="status" class="status" role="status" aria-live="polite"></p></div>
+  <div class="status-line"><p id="status" class="status" role="status" aria-live="polite"></p><a id="linux-result-link" hidden download="spine-mask-linux-native.zip">Download Linux ZIP</a></div>
 </main>
 <footer>Local processing · Spine 4.3.26 · <a href="https://esotericsoftware.com/spine-clipping" rel="noopener" target="_blank">Spine clipping documentation</a></footer>
-<script type="module" src="./app.js?v=simple-spine-import-20261119"></script>
+<script type="module" src="./app.js?v=fullproject-linux-ci-20261119"></script>
 </body>
 </html>
