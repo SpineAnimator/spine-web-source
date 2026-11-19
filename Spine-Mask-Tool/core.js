@@ -705,8 +705,9 @@ export function exportLocalEditorMultiMask(original, selectedSlots, points, clip
   for(const animation of Object.values(json.animations||{})){
     for(const frame of animation.drawOrder||animation.draworder||[]){
       for(const offset of frame.offsets||[]){
-        const from=json.slots.findIndex(s=>s.name===offset.slot);
-        if(from<0)continue;
+        const shiftedFrom=json.slots.findIndex(s=>s.name===offset.slot);
+        if(shiftedFrom<0)continue;
+        const from=shiftedFrom>=startIndex?shiftedFrom-1:shiftedFrom;
         const dest=from+offset.offset;
         const mappedFrom=from>=startIndex?from+1:from;
         const mappedTo=dest>=startIndex?dest+1:dest;
