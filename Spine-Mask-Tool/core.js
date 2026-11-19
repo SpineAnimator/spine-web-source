@@ -647,6 +647,87 @@ export function exportJson(original, target, points, sourceW, sourceH) {
 }
 
 
+// Build one clipping attachment for a manually selected, contiguous draw-order range.
+// Vertices are already expressed in the selected common ancestor bone's local space.
+export function exportLocalEditorMultiMask(original, selectedSlots, points, clipBone, firstSlot, lastSlot) {
+  if(!original||!Array.isArray(selectedSlots)||!selectedSlots.length||
+     !Array.isArray(points)||points.length<3||points.length>2500)
+    throw Error("A project, selected objects and a valid mask are required.");
+  const json=JSON.parse(JSON.stringify(original));
+  const boneNames=new Set((json.bones||[]).map(b=>b.name));
+  if(!boneNames.has(clipBone))throw Error("Common parent bone is missing.");
+  const wanted=[...new Set(selectedSlots)];
+  const slots=json.slots||[];
+  let indices=wanted.map(name=>slots.findIndex(s=>s.name===name)).sort((a,b)=>a-b);
+  if(indices.some(i=>i<0))throw Error("A selected slot no longer exists.");
+  const first=slots.findIndex(s=>s.name===firstSlot);
+  const last=slots.findIndex(s=>s.name===lastSlot);
+  if(first<0||last<first)throw Error("Invalid clipping range.");
+  const selectedSet=new Set(wanted);
+  for(let i=first;i<=last;i++){
+    if(!selectedSet.has(slots[i].name))
+      throw Error("One clipping attachment can cover only a continuous selected slot range.");
+  }
+  const generated=slots.filter(s=>s.name?.startsWith("auto_mask_"));
+  if(generated.length>1)throw Error("Project contains multiple generated masks; clean up the previous result first.");
+  let maskName=generated[0]?.name||"auto_mask_multi";
+  const oldSlots=slots.slice();
+  if(generated.length===1){
+    const removeIndex=slots.findIndex(s=>s.name===maskName);
+    slots.splice(removeIndex,1);
+    for(const skin of (Array.isArray(json.skins)?json.skins:Object.values(json.skins||{}))){
+      const attachments=skin.attachments||skin;
+      delete attachments[maskName];
+    }
+    for(const animation of Object.values(json.animations||{})){
+      for(const frame of animation.drawOrder||animation.draworder||[]){
+        for(const offset of frame.offsets||[]){
+          const from=oldSlots.findIndex(s=>s.name===offset.slot);
+          if(from<0)continue;
+          const dest=from+offset.offset;
+          const mappedFrom=from>removeIndex?from-1:from;
+          const mappedTo=dest>removeIndex?dest-1:dest;
+          offset.offset=mappedTo-mappedFrom;
+        }
+      }
+    }
+  }
+  const startIndex=json.slots.findIndex(s=>s.name===firstSlot);
+  const endIndex=json.slots.findIndex(s=>s.name===lastSlot);
+  const clip={type:"clipping",end:lastSlot,vertexCount:points.length,
+    vertices:points.flatMap(([x,y])=>[round(x),round(y)])};
+  const base="auto_mask_multi";
+  if(!generated.length){
+    let n=1;
+    while(json.slots.some(s=>s.name===maskName))maskName=base+"_"+(++n);
+  }
+  json.slots.splice(startIndex,0,{name:maskName,bone:clipBone,attachment:"clip"});
+  for(const animation of Object.values(json.animations||{})){
+    for(const frame of animation.drawOrder||animation.draworder||[]){
+      for(const offset of frame.offsets||[]){
+        const from=json.slots.findIndex(s=>s.name===offset.slot);
+        if(from<0)continue;
+        const dest=from+offset.offset;
+        const mappedFrom=from>=startIndex?from+1:from;
+        const mappedTo=dest>=startIndex?dest+1:dest;
+        offset.offset=mappedTo-mappedFrom;
+      }
+    }
+  }
+  const skins=Array.isArray(json.skins)?json.skins:
+    Object.entries(json.skins||{}).map(([name,attachments])=>({name,attachments}));
+  if(!skins.length)throw Error("Project has no skins.");
+  for(const skin of skins){
+    skin.attachments ||= {};
+    skin.attachments[maskName]={clip:JSON.parse(JSON.stringify(clip))};
+  }
+  if(!Array.isArray(json.skins)){
+    for(const skin of skins)json.skins[skin.name]=skin.attachments;
+  }
+  return {json,clippingSlot:maskName,firstSlot,lastSlot,clipBone};
+}
+
+
 // Merge a new clipping+overlay pair into an EXISTING Spine skeleton.
 // The original target region, animation, mesh data and draw order are retained.
 // The mask clips only the NEW overlay, not the original artwork.
