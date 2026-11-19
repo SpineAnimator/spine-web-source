@@ -77,7 +77,27 @@ function renderSelectionTree(){
 }
 function multiplyMatrix(a,b){return[a[0]*b[0]+a[2]*b[1],a[1]*b[0]+a[3]*b[1],a[0]*b[2]+a[2]*b[3],a[1]*b[2]+a[3]*b[3],a[0]*b[4]+a[2]*b[5]+a[4],a[1]*b[4]+a[3]*b[5]+a[5]];}
 function invertMatrix(m){const z=m[0]*m[3]-m[1]*m[2];if(Math.abs(z)<1e-10)throw Error("Invalid bone transform.");const a=m[3]/z,b=-m[1]/z,c=-m[2]/z,d=m[0]/z;return[a,b,c,d,-a*m[4]-c*m[5],-b*m[4]-d*m[5]];}
-function setupBoneMatrices(){const bones=boneMap(),cache=new Map(),active=new Set();const get=name=>{if(cache.has(name))return cache.get(name);const b=bones.get(name);if(!b)throw Error("Missing selected bone: "+name);if(active.has(name))throw Error("Bone cycle.");active.add(name);const r=(Number(b.rotation)||0)*Math.PI/180,sx=Number(b.scaleX??1),sy=Number(b.scaleY??1),local=[Math.cos(r)*sx,Math.sin(r)*sx,-Math.sin(r)*sy,Math.cos(r)*sy,Number(b.x)||0,Number(b.y)||0];const m=b.parent?multiplyMatrix(get(b.parent),local):local;active.delete(name);cache.set(name,m);return m;};for(const n of bones.keys())get(n);return{bones,cache};}
+function setupBoneMatrices(){
+ const bones=boneMap(),cache=new Map(),active=new Set();
+ const get=name=>{
+  if(cache.has(name))return cache.get(name);
+  const b=bones.get(name);if(!b)throw Error("Missing selected bone: "+name);
+  if(active.has(name))throw Error("Bone cycle.");
+  active.add(name);
+  const r=(Number(b.rotation)||0)*Math.PI/180;
+  const shx=(Number(b.shearX)||0)*Math.PI/180,shy=(Number(b.shearY)||0)*Math.PI/180;
+  const sx=Number(b.scaleX??1),sy=Number(b.scaleY??1);
+  const local=[
+   Math.cos(r+shx)*sx,Math.sin(r+shx)*sx,
+   Math.cos(r+Math.PI/2+shy)*sy,Math.sin(r+Math.PI/2+shy)*sy,
+   Number(b.x)||0,Number(b.y)||0
+  ];
+  const m=b.parent?multiplyMatrix(get(b.parent),local):local;
+  active.delete(name);cache.set(name,m);return m;
+ };
+ for(const n of bones.keys())get(n);
+ return{bones,cache};
+}
 function commonBone(names,data){const chains=names.map(n=>{const a=[];let b=data.bones.get(n);while(b){a.push(b.name);b=b.parent?data.bones.get(b.parent):null;}return a;});return(chains[0]||[]).find(n=>chains.every(c=>c.includes(n)));}
 function sourceForChoice(c){const names=[basename(c.path),basename(c.attachment)];const found=state.images.filter(x=>names.includes(basename(x.file.name)));if(found.length>1)throw Error("Несколько текстур имеют одинаковое имя: "+c.path);return found[0]||null;}
 function composeSelectedArtwork(entries){
@@ -85,6 +105,14 @@ function composeSelectedArtwork(entries){
  const first=slots.findIndex(s=>s.name===selectedSlots[0]),last=slots.findIndex(s=>s.name===selectedSlots.at(-1)),selected=new Set(selectedSlots);
  for(let i=first;i<=last;i++)if(!selected.has(slots[i].name))throw Error("Выбери непрерывную группу слотов.");
  const names=selectedSlots.map(n=>slots.find(s=>s.name===n).bone),clipBone=commonBone(names,bd);if(!clipBone)throw Error("Нет общей родительской кости.");
+ for(const name of names){
+  let bone=bd.bones.get(name);
+  while(bone){
+   if(bone.transform&&bone.transform!=="normal")
+    throw Error("Для маски по нескольким костям пока не поддерживается режим наследования "+bone.transform+" у кости "+bone.name+".");
+   bone=bone.parent?bd.bones.get(bone.parent):null;
+  }
+ }
  const inv=invertMatrix(bd.cache.get(clipBone)),items=[];
  for(const e of entries){const c=e.choice,slot=slots.find(s=>s.name===c.slot),asset=sourceForChoice(c);if(!asset)throw Error("Нет текстуры для "+c.attachment);const im=asset.image,d=c.data||{},w=Number(d.width)||im.width,h=Number(d.height)||im.height,r=(Number(d.rotation)||0)*Math.PI/180,sx=Number(d.scaleX??1),sy=Number(d.scaleY??1),co=Math.cos(r),si=Math.sin(r);
   const a=co*w*sx/im.width,b=si*w*sx/im.width,cc=si*h*sy/im.height,dd=-co*h*sy/im.height,x=Number(d.x)||0,y=Number(d.y)||0;
