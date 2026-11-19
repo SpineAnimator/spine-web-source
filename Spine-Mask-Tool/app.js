@@ -1,4 +1,5 @@
 import { imageMask, availableRegions, exportJson, exportLocalEditorMask, maskVertices } from "./core.js?v=73a39f59";
+import { submitSpineProject, pollSpineResult } from "./linux-api.js?v=20261119";
 
 const $ = id => document.getElementById(id);
 const filesInput = $("files"), targetInput = $("target"), canvas = $("preview");
@@ -8,6 +9,8 @@ let quickPickerArmed = false;
 let quickBusy = false;
 let simpleBridgeRequested = false;
 let bridgeInstalled = false;
+let linuxVerifyBusy = false;
+let linuxResultUrl = null;
 function reflectBridgeInstall() {
   $("quick-install-bridge").hidden = bridgeInstalled;
 }
@@ -382,7 +385,9 @@ async function doEverything() {
     const zip = await buildPreservedSpineProjectZip();
     downloadBlob(new Blob([zip], { type: "application/zip" }),
       (state.base || "mask") + "-complete-spine-mask.zip");
-    status("Done. One clipping mask generated and complete Spine ZIP downloaded.");
+    status("Complete Spine ZIP saved locally. Queuing licensed Linux verification…");
+    // Private CI receives the project only after this user-triggered Make all.
+    void verifyLinuxZip(zip);
   } catch (error) {
     status("Automatic mask export failed: " + error.message, true);
   } finally {
@@ -391,6 +396,41 @@ async function doEverything() {
     button.textContent = "Make all";
   }
 }
+async function verifyLinuxZip(zip=null){
+  if(linuxVerifyBusy)return;
+  linuxVerifyBusy=true;
+  const control=$("linux-verify");
+  control.disabled=true;
+  try{
+    if(!zip){
+      if(!state.result)await generate();
+      if(!state.result)throw Error("Generate the clipping mask first.");
+      zip=await buildPreservedSpineProjectZip();
+    }
+    const link=$("linux-result-link");
+    link.hidden=true;
+    if(linuxResultUrl){URL.revokeObjectURL(linuxResultUrl);linuxResultUrl=null;}
+    status("Uploading full Spine ZIP to private Linux CI (up to 64 MiB)…");
+    const job=await submitSpineProject(zip,(state.base||"spine")+"-mask.zip");
+    state.linuxCI={id:job.id,status:"queued"};
+    status("Ubuntu Spine Editor 4.3.26 verification queued: "+job.id);
+    const native=await pollSpineResult(job,{onStatus:report=>{
+      state.linuxCI={id:job.id,status:report.status};
+      if(report.status==="queued")status("Ubuntu Spine Editor verification running or queued: "+job.id);
+    }});
+    linuxResultUrl=URL.createObjectURL(new Blob([native],{type:"application/zip"}));
+    link.href=linuxResultUrl;
+    link.hidden=false;
+    state.linuxCI={id:job.id,status:"ready",bytes:native.length};
+    status("Linux Spine Editor verified complete project. Native ZIP available.");
+    downloadBlob(new Blob([native],{type:"application/zip"}),
+      (state.base||"spine")+"-linux-native.zip");
+  }catch(error){
+    state.linuxCI={status:"failed",error:String(error?.message||error)};
+    status("Linux CI: "+error.message+" · The local Spine ZIP is unaffected.",true);
+  }finally{linuxVerifyBusy=false;control.disabled=false;}
+}
+$("linux-verify").addEventListener("click",()=>void verifyLinuxZip());
 $("do-all").addEventListener("click", () => void doEverything());
 $("quick-from-spine").addEventListener("click", () => {
   simpleBridgeRequested = true;
@@ -416,6 +456,8 @@ Object.defineProperty(window,"SpineMaskAgentControl",{
       return checkbox.checked;
     },
     generate:()=>generate(),
+    verifyLinuxCI:()=>verifyLinuxZip(),
+    getLinuxStatus:()=>state.linuxCI||{status:"idle"},
     getStatus:()=>({ready:!!state.result,mode:$("highlight-edges").checked?"light-faces":"silhouette",
       result:state.result?{vertices:state.result.mask.stats.vertices,
         highlightApplied:state.result.mask.stats.highlightApplied,
