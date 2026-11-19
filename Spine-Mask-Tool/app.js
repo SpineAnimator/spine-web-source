@@ -1008,6 +1008,8 @@ async function connectEditor(auto=false,choose=false){
       throw Error("Outdated Chrome native bridge. Update Bridge to continue.");
     }
     const requiredCapabilities=["multi-slot-clipping","weighted-clipping"];
+    const platform=ping.platform;
+    if(platform!=="Linux"&&platform!=="Windows")requiredCapabilities.push("originating-editor-open");
     const availableCapabilities=Array.isArray(ping.capabilities)?ping.capabilities:[];
     const missingCapabilities=requiredCapabilities.filter(capability=>!availableCapabilities.includes(capability));
     if(missingCapabilities.length){
