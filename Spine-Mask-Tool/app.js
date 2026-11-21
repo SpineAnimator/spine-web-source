@@ -281,7 +281,7 @@ async function unpackSpineZip(file) {
 }
 async function importProjectFiles(fileList, replace=false) {
   const selected=Array.from(fileList||[]);
-  if(!selected.length)return;
+  if(!selected.length)return {status:"empty"};
   try{
     const imported=[];
     for(const file of selected){
@@ -291,7 +291,14 @@ async function importProjectFiles(fileList, replace=false) {
     if(replace)$("reset").click();
     await addFiles(imported);
     if(state.binary&&!state.json)$("bridge-setup").open=true;
-  }catch(error){status("Project import: "+error.message,true);}
+    if(!state.json&&!state.images.length&&!state.binary)
+      return {status:"failed",error:"No supported Spine skeleton or image was imported."};
+    return {status:"loaded",mode:state.json?"spine-json":state.binary?"spine-binary":"image",
+      skeleton:!!state.json,imageCount:state.images.length};
+  }catch(error){
+    status("Project import: "+error.message,true);
+    return {status:"failed",error:String(error?.message||error)};
+  }
 }
 
 async function addFiles(fileList, fromBridge = false) {
@@ -564,8 +571,8 @@ async function doEverything() {
     button.textContent = state.actionErrorLabel || (state.editorOpenResult === true ? "Открыто в Spine" : state.editorOpenResult === "saved" ? "Сохранено" : state.editorOpenResult === false ? "Ошибка Spine" : "Сделать маску");
   }
 }
-async function verifyLinuxZip(zip=null){
-  if(linuxVerifyBusy)return;
+async function verifyLinuxZip(zip=null,{download=true}={}){
+  if(linuxVerifyBusy)return {status:"busy"};
   linuxVerifyBusy=true;
   const control=$("linux-verify");
   control.disabled=true;
@@ -591,11 +598,13 @@ async function verifyLinuxZip(zip=null){
     link.hidden=false;
     state.linuxCI={id:job.id,status:"ready",bytes:native.length};
     status("Linux Spine Editor verified complete project. Native ZIP available.");
-    downloadBlob(new Blob([native],{type:"application/zip"}),
-      (state.base||"spine")+"-linux-native.zip");
+    const filename=(state.base||"spine")+"-linux-native.zip";
+    if(download)downloadBlob(new Blob([native],{type:"application/zip"}),filename);
+    return {status:"ready",bytes:native,filename,jobId:job.id,verifiedBy:"Spine Editor 4.3.26"};
   }catch(error){
     state.linuxCI={status:"failed",error:String(error?.message||error)};
     status("Linux CI: "+error.message+" · The local Spine ZIP is unaffected.",true);
+    return {status:"failed",error:String(error?.message||error)};
   }finally{linuxVerifyBusy=false;control.disabled=false;}
 }
 $("linux-verify").addEventListener("click",()=>void verifyLinuxZip());
@@ -618,15 +627,51 @@ Object.defineProperty(window,"SpineMaskAgentControl",{
   value:Object.freeze({
     getHighlightEdges:()=>$("highlight-edges").checked,
     setHighlightEdges:enabled=>{
-      const checkbox=$("highlight-edges");
-      checkbox.checked=!!enabled;
-      checkbox.dispatchEvent(new Event("change",{bubbles:true}));
-      return checkbox.checked;
+      $("highlight-edges").checked=!!enabled;
+      return $("highlight-edges").checked;
+    },
+    loadFiles:async files=>importProjectFiles(files,true),
+    setSelectedObjects:targets=>{
+      if(!Array.isArray(targets)||!targets.length)throw Error("Exact mask targets are required.");
+      const matched=[];
+      for(const target of targets){
+        if(!target||typeof target!=="object"||typeof target.slot!=="string"||
+          typeof target.attachment!=="string")throw Error("Each mask target needs exact slot and attachment names.");
+        const candidates=state.treeChoices.filter(entry=>{
+          const c=entry.choice;
+          return c.slot===target.slot&&c.attachment===target.attachment&&
+            (target.skin===undefined||c.skin===target.skin)&&
+            (target.path===undefined||c.path===target.path);
+        });
+        if(candidates.length!==1)throw Error("Mask target did not resolve uniquely: "+target.slot+"/"+target.attachment);
+        matched.push(candidates[0]);
+      }
+      if(new Set(matched.map(x=>x.choiceIndex)).size!==matched.length)
+        throw Error("Duplicate mask targets are not allowed.");
+      state.selectedChoiceIndexes=new Set(matched.map(x=>x.choiceIndex));
+      syncTreeChecks();updateMakeButton();clearResult();
+      return matched.map(entry=>({choiceIndex:entry.choiceIndex,slot:entry.choice.slot,
+        attachment:entry.choice.attachment,skin:entry.choice.skin,path:entry.choice.path}));
+    },
+    runFullWorkflow:async()=>{
+      if(!state.json)throw Error("A Spine JSON skeleton with region images is required for automated multi-target masking.");
+      if(!state.selectedChoiceIndexes.size)throw Error("Select exact mask targets before running the workflow.");
+      await generateSelectedObjects();
+      if(!state.result?.json)throw Error("Mask generation did not produce a Spine JSON result.");
+      const prepared=await buildPreservedSpineProjectZip();
+      const native=await verifyLinuxZip(prepared,{download:false});
+      if(native.status!=="ready"||!(native.bytes instanceof Uint8Array))
+        return {status:"failed",error:native.error||"Native Spine Editor verification did not complete.",
+          mask:{result:state.result.mask.stats,linux:state.linuxCI||{status:"failed"}}};
+      return {status:"ready",artifact:{bytes:native.bytes,filename:native.filename},
+        mask:{result:state.result.mask.stats,linux:{status:"ready",jobId:native.jobId,
+          verifiedBy:native.verifiedBy}}};
     },
     generate:()=>generate(),
     verifyLinuxCI:()=>verifyLinuxZip(),
     getLinuxStatus:()=>state.linuxCI||{status:"idle"},
     getStatus:()=>({ready:!!state.result,mode:$("highlight-edges").checked?"light-faces":"silhouette",
+      selectedTargets:state.selectedChoiceIndexes.size,
       result:state.result?{vertices:state.result.mask.stats.vertices,
         highlightApplied:state.result.mask.stats.highlightApplied,
         mobileQualityPassed:state.result.mask.stats.mobileQualityPassed,
