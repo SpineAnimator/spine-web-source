@@ -646,8 +646,8 @@ Object.defineProperty(window,"SpineMaskAgentControl",{
         const candidates=state.treeChoices.filter(entry=>{
           const c=entry.choice;
           return c.slot===target.slot&&c.attachment===target.attachment&&
-            (target.skin===undefined||c.skin===target.skin)&&
-            (target.path===undefined||c.path===target.path);
+            (target.skin===undefined||(c.skin||"default")===target.skin)&&
+            (target.path===undefined||(c.path||"")===target.path);
         });
         if(candidates.length!==1)throw Error("Mask target did not resolve uniquely: "+target.slot+"/"+target.attachment);
         matched.push(candidates[0]);
