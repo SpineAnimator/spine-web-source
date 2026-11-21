@@ -631,6 +631,12 @@ Object.defineProperty(window,"SpineMaskAgentControl",{
       return $("highlight-edges").checked;
     },
     loadFiles:async files=>importProjectFiles(files,true),
+    getSelectableObjects:()=>state.treeChoices.map(entry=>{
+      const slot=(state.json?.slots||[]).find(item=>item.name===entry.choice.slot);
+      return {choiceIndex:entry.choiceIndex,slot:entry.choice.slot,attachment:entry.choice.attachment,
+        skin:entry.choice.skin||"default",path:entry.choice.path||"",bone:slot?.bone||null,
+        selected:state.selectedChoiceIndexes.has(entry.choiceIndex)};
+    }),
     setSelectedObjects:targets=>{
       if(!Array.isArray(targets)||!targets.length)throw Error("Exact mask targets are required.");
       const matched=[];
