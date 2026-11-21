@@ -277,4 +277,79 @@
   $('file').addEventListener('change', () => { $('url').value = ''; clearDownload(); });
   $('url').addEventListener('change', () => { $('file').value = ''; clearDownload(); });
   $('prompt').addEventListener('input', clearDownload);
+
+  // Conversation layer: preserves the existing PSD/Spine execution path.
+  const chatHistory = $('chat-history');
+  const chatWelcome = $('chat-welcome');
+  let chatStatusBubble = null;
+  let chatResultBubble = null;
+  function chatAppend(text, kind) {
+    const value = String(text || '').trim();
+    if (!value || !chatHistory) return null;
+    document.body.classList.add('has-chat-content');
+    if (chatWelcome) chatWelcome.hidden = true;
+    const node = document.createElement('div');
+    node.className = kind === 'attachment' ? 'chat-attachment-message' :
+      kind === 'assistant' ? 'chat-assistant-message' : 'chat-user-message';
+    node.textContent = value;
+    chatHistory.appendChild(node);
+    node.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    return node;
+  }
+  const chatPrompt = $('prompt');
+  const chatCreate = $('create');
+  const chatFile = $('file');
+  const chatUrl = $('url');
+  const chatStatus = $('status');
+  const chatDownload = $('download');
+  let lastChatPrompt = '';
+  function submitChatPrompt() {
+    const value = chatPrompt?.value?.trim();
+    if (!value || value === lastChatPrompt) return;
+    lastChatPrompt = value;
+    chatAppend(value, 'user');
+  }
+  if (chatCreate) chatCreate.addEventListener('click', submitChatPrompt, true);
+  if (chatPrompt) chatPrompt.addEventListener('keydown', event => {
+    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') submitChatPrompt();
+  }, true);
+  if (chatFile) chatFile.addEventListener('change', () => {
+    const file = chatFile.files && chatFile.files[0];
+    if (file) chatAppend('Attached PSD: ' + file.name, 'attachment');
+  });
+  if (chatUrl) chatUrl.addEventListener('change', () => {
+    const value = chatUrl.value.trim();
+    if (value) chatAppend('Source link: ' + value, 'attachment');
+  });
+  if (chatStatus && typeof MutationObserver === 'function') {
+    const observer = new MutationObserver(() => {
+      const value = chatStatus.textContent.trim();
+      if (!value) return;
+      document.body.classList.add('has-chat-content');
+      if (!chatStatusBubble) {
+        chatStatusBubble = document.createElement('div');
+        chatStatusBubble.className = 'chat-assistant-message chat-progress-message';
+        chatHistory.appendChild(chatStatusBubble);
+      }
+      chatStatusBubble.textContent = value;
+    });
+    observer.observe(chatStatus, { childList: true, characterData: true, subtree: true });
+  }
+  if (chatDownload && typeof MutationObserver === 'function') {
+    const observer = new MutationObserver(() => {
+      if (chatDownload.hidden || !chatDownload.href || chatResultBubble) return;
+      chatResultBubble = document.createElement('div');
+      chatResultBubble.className = 'chat-assistant-message chat-result-message';
+      const label = document.createElement('strong');
+      label.textContent = 'Spine project package ready';
+      const link = document.createElement('a');
+      link.href = chatDownload.href;
+      link.textContent = 'Download Spine project';
+      link.className = 'chat-result-link';
+      link.setAttribute('download', chatDownload.getAttribute('download') || 'spine-project.zip');
+      chatResultBubble.append(label, document.createTextNode(' '), link);
+      chatHistory.appendChild(chatResultBubble);
+    });
+    observer.observe(chatDownload, { attributes: true, attributeFilter: ['href', 'hidden', 'download'] });
+  }
 })();
