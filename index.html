@@ -627,6 +627,177 @@ body.is-done #player.player-stage {
   }
 }
 
+
+/* Conversation-first SA workspace */
+.chat-main {
+  width: min(100% - 32px, 920px);
+  max-width: 920px;
+  min-height: calc(100vh - 128px);
+  margin: 0 auto;
+  padding: 28px 0 38px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.chat-welcome {
+  width: 100%;
+  max-width: 740px;
+  margin: auto auto 4px;
+  padding: 34px 20px 14px;
+  text-align: center;
+}
+.chat-mark {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  margin: 0 auto 18px;
+  border-radius: 16px;
+  color: var(--ink);
+  background: var(--accent);
+  font: 800 17px Manrope, sans-serif;
+  letter-spacing: .04em;
+  box-shadow: 0 8px 34px #ff6a1a22;
+}
+.chat-welcome h1 {
+  margin: 0;
+  font: 650 clamp(27px, 4vw, 39px)/1.2 Manrope, sans-serif;
+  letter-spacing: -.035em;
+}
+.chat-welcome p {
+  max-width: 540px;
+  margin: 12px auto 0;
+  color: var(--muted);
+  font-size: 15px;
+}
+.chat-suggestions {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 22px auto 0;
+}
+.chat-suggestions span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 7px 11px;
+  color: var(--muted);
+  background: #131315;
+  font-size: 11px;
+}
+.chat-thread { width: 100%; display: flex; flex-direction: column; gap: 14px; }
+.chat-history { display: flex; flex-direction: column; gap: 12px; }
+.chat-user-message {
+  align-self: flex-end;
+  max-width: min(86%, 700px);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 12px 16px;
+  border: 1px solid #4b3428;
+  border-radius: 18px 18px 5px 18px;
+  background: #211a16;
+  color: var(--text);
+  font-size: 14px;
+}
+.chat-attachment-message {
+  align-self: flex-end;
+  max-width: 86%;
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #141416;
+  color: #ffc19d;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.chat-assistant-message {
+  align-self: flex-start;
+  max-width: min(90%, 720px);
+  padding: 11px 14px;
+  border: 1px solid var(--line);
+  border-radius: 15px 15px 15px 5px;
+  background: #151517;
+  color: var(--muted);
+  font-size: 13px;
+}
+.chat-main .card {
+  width: 100%;
+  padding: 16px;
+  border-radius: 18px;
+}
+.chat-main .card-source {
+  padding: 0;
+  background: transparent;
+  border-color: transparent;
+}
+.chat-main #source-card:has(#source-preview[hidden]) { display: none; }
+.chat-main .source-preview {
+  max-height: 500px;
+  margin-top: 0;
+}
+.chat-main .source-meta { display: flex; flex-wrap: wrap; gap: 10px 18px; margin-top: 12px; }
+.chat-main .card-motion {
+  position: sticky;
+  bottom: 10px;
+  z-index: 5;
+  background: #171719f5;
+  border-color: #454047;
+  box-shadow: 0 14px 50px #0008;
+  backdrop-filter: blur(18px);
+}
+.chat-main .motion-setup { display: flex; flex-direction: column; gap: 8px; }
+.chat-main #prompt {
+  min-height: 86px;
+  max-height: 260px;
+  resize: vertical;
+  border: 0;
+  background: transparent;
+  padding: 8px 4px;
+  font-size: 15px;
+}
+.chat-main #prompt:focus { outline: none; }
+.chat-attachment-row {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.chat-main .url-row { margin-top: 0; }
+.chat-main .compact-file { min-width: 112px; max-width: 112px; flex-basis: 112px; }
+.chat-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.chat-main #generate { min-height: 44px; }
+.chat-main .chat-status {
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.chat-main .chat-status:not(:empty) {
+  margin-top: 8px;
+  padding: 9px 12px;
+  border-left: 2px solid var(--accent);
+  border-radius: 0 9px 9px 0;
+  background: #111113;
+}
+body.has-chat-content .chat-welcome { display: none; }
+body.is-generating .chat-main .card-motion { position: static; }
+@media (max-width: 640px) {
+  .chat-main { width: min(100% - 20px, 920px); padding-top: 16px; gap: 12px; }
+  .chat-welcome { padding: 24px 8px 8px; }
+  .chat-suggestions { display: none; }
+  .chat-main .card { padding: 12px; }
+  .chat-main .card-source { padding: 0; }
+  .chat-main .card-motion { bottom: 5px; }
+  .chat-user-message, .chat-attachment-message { max-width: 94%; }
+  .chat-actions { justify-content: stretch; }
+  .chat-actions #generate, .chat-actions #download { flex: 1 1 100%; text-align: center; }
+}
 </style>
   <script defer src="https://cdn.jsdelivr.net/npm/ag-psd@14.5.2/dist/bundle.js"></script>
 
@@ -641,54 +812,67 @@ body.is-done #player.player-stage {
       <span class="cross" aria-hidden="true">×</span>
       <a href="./" class="brand" aria-label="SPINE ANIMATOR"><span class="wordmark">SP<span class="i-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>NE</span><span class="product">ANIMATOR</span></a>
     </div>
-    <span class="version">v.1.4.2</span>
+    <span class="version">v.1.4.3</span>
   </header>
-  <main>
-    <section class="card card-source" id="source-card" aria-label="Source">
-      <div class="source-setup" id="source-setup">
-        <div class="url-row">
-          <input id="source-url" type="url" inputmode="url" aria-label="Link" placeholder="Paste a PSD or JSON link" autocomplete="off" spellcheck="false">
-          <label for="source-file" id="file-drop" class="button button-secondary compact-file" tabindex="0" role="button" aria-label="Open or drop a file">
-            <span>File</span><input id="source-file" type="file" accept=".psd,.json,image/vnd.adobe.photoshop,application/json"><span id="file-name" hidden></span>
-          </label>
-        </div>
-        <canvas id="source-preview" class="source-preview" hidden></canvas>
-        <div class="source-meta">
-          <span class="meta-group"><span class="meta-label">Layers</span><strong id="layer-count">0</strong></span>
-          <span class="meta-group"><span class="meta-label">Size</span><strong id="source-size">—</strong></span>
-          <span class="meta-group"><span class="meta-label">Mode</span><strong id="source-mode">—</strong></span>
-          <span class="meta-group"><span class="meta-label">File</span><strong id="source-name">—</strong></span>
-          <span class="meta-group"><span class="meta-label">Bytes</span><strong id="source-bytes">—</strong></span>
-        </div>
-        <ul id="layer-names" class="layer-names" hidden></ul>
-        <ul id="source-notes" class="source-notes" hidden></ul>
+  <main class="chat-main">
+    <section class="chat-welcome" id="chat-welcome" aria-label="Welcome">
+      <div class="chat-mark">SA</div>
+      <h1>What are we animating today?</h1>
+      <p>Attach a layered PSD or paste a direct link. Describe the motion and SA will prepare a Spine project.</p>
+      <div class="chat-suggestions" aria-label="Example animation prompts">
+        <span>Make the character wave naturally</span>
+        <span>Create an idle breathing loop</span>
+        <span>Animate a run cycle with secondary motion</span>
       </div>
-      <div id="player" class="player-stage" hidden></div>
-      <div id="clips" class="clip-list" role="group" aria-label="Clips" hidden></div>
     </section>
-
-    <section class="card card-motion" id="motion-card" aria-label="Motion">
-      <div class="motion-setup" id="motion-setup">
-        <label class="sr-only" for="prompt">Motion</label>
-        <textarea id="prompt" rows="3" maxlength="41943040" spellcheck="true" placeholder="Describe the motion"></textarea>
-        <ul id="contract" class="contract" hidden aria-label="Clips the sentence will build"></ul>
-        <ul id="assumptions" class="assumptions" hidden aria-label="What the sentence left unsaid"></ul>
-        <div id="inputs" class="input-row" hidden></div>
-      </div>
-      <button id="generate" type="button" class="button button-primary"><span>Create</span><kbd>Ctrl+Enter</kbd></button>
-      <a id="download" class="button button-download" hidden>Download</a>
-      <a id="catalog-link" class="catalog-link" hidden></a>
-      <ol id="passes" class="pass-list internal-passes" hidden>
-        <li data-id="quality"><span>1</span><div><strong>Quality</strong><small>ready animation + seal near etalons</small></div></li>
-      </ol>
-      <div id="status" class="status" role="status" aria-live="polite"></div>
-    </section>
-
+    <div class="chat-thread" id="chat-thread">
+      <div class="chat-history" id="chat-history" role="log" aria-live="polite" aria-relevant="additions text"></div>
+      <section class="card card-source" id="source-card" aria-label="Source artwork">
+        <div class="source-setup" id="source-setup">
+          <canvas id="source-preview" class="source-preview" hidden></canvas>
+          <div class="source-meta">
+            <span class="meta-group"><span class="meta-label">Layers</span><strong id="layer-count">0</strong></span>
+            <span class="meta-group"><span class="meta-label">Size</span><strong id="source-size">—</strong></span>
+            <span class="meta-group"><span class="meta-label">Mode</span><strong id="source-mode">—</strong></span>
+            <span class="meta-group"><span class="meta-label">File</span><strong id="source-name">—</strong></span>
+            <span class="meta-group"><span class="meta-label">Bytes</span><strong id="source-bytes">—</strong></span>
+          </div>
+          <ul id="layer-names" class="layer-names" hidden></ul>
+          <ul id="source-notes" class="source-notes" hidden></ul>
+        </div>
+      </section>
+      <section class="card card-motion" id="motion-card" aria-label="Animation request">
+        <div class="motion-setup" id="motion-setup">
+          <label class="sr-only" for="prompt">Animation instructions</label>
+          <textarea id="prompt" rows="3" maxlength="20000" spellcheck="true" placeholder="Describe the animation, movement, timing, mood or result you want…"></textarea>
+          <ul id="contract" class="contract" hidden aria-label="Clips the sentence will build"></ul>
+          <ul id="assumptions" class="assumptions" hidden aria-label="What the sentence left unsaid"></ul>
+          <div id="inputs" class="input-row" hidden></div>
+        </div>
+        <div class="chat-attachment-row">
+          <div class="url-row">
+            <input id="source-url" type="url" inputmode="url" aria-label="PSD link" placeholder="Paste a PSD link" autocomplete="off" spellcheck="false">
+            <label for="source-file" id="file-drop" class="button button-secondary compact-file" tabindex="0" role="button" aria-label="Attach a PSD file">
+              <span>Attach PSD</span><input id="source-file" type="file" accept=".psd,.json,image/vnd.adobe.photoshop,application/json"><span id="file-name" hidden></span>
+            </label>
+          </div>
+          <div class="chat-actions">
+            <button id="generate" type="button" class="button button-primary"><span>Create animation</span><kbd>Ctrl+Enter</kbd></button>
+            <a id="download" class="button button-download" hidden>Download project</a>
+            <a id="catalog-link" class="catalog-link" hidden></a>
+          </div>
+        </div>
+        <ol id="passes" class="pass-list internal-passes" hidden>
+          <li data-id="quality"><span>1</span><div><strong>Quality</strong><small>ready animation + seal near etalons</small></div></li>
+        </ol>
+        <div id="status" class="status chat-status" role="status" aria-live="polite"></div>
+      </section>
+    </div>
     <div id="work-spinner" class="work-spinner" hidden aria-hidden="true">
       <div class="work-spinner-ring" role="progressbar" aria-label="Creating animation"></div>
     </div>
   </main>
-  <footer style="text-align:center;padding:18px;font:12px system-ui;opacity:.65">SPINE ANIMATOR · v.1.4.2</footer>
+  <footer style="text-align:center;padding:18px;font:12px system-ui;opacity:.65">SPINE ANIMATOR · v.1.4.3</footer>
   <noscript><div class="noscript">JavaScript is required.</div></noscript>
 </body>
 </html>
