@@ -234,11 +234,10 @@
         }
         plan = JSON.parse(new TextDecoder().decode(planResponse.bytes));
       } catch (error) {
-        if (error?.status === 504 || /AI planner:.*network timeout/i.test(String(error.message))) {
-          throw Error('AI planning failed closed: ' + error.message +
-            '. No technical fallback ZIP was created.');
-        }
-        throw error;
+        // No planner error may cross into export: 4xx/5xx, timeout, network
+        // failure and malformed AI responses all fail closed without a ZIP.
+        throw Error('AI planning failed closed: ' + (error?.message || String(error)) +
+          '. No technical fallback ZIP was created.');
       }
       if (!plan.scene || !Array.isArray(plan.scene.clips) || !plan.scene.clips.length)
         throw Error('Cloud did not return complete animation clips. No incomplete ZIP created.');
