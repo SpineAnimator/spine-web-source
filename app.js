@@ -303,10 +303,18 @@
   const chatStatus = $('status');
   const chatDownload = $('download');
   let lastChatPrompt = '';
+  let lastChatSubmittedAt = 0;
+  function clearChatResult() {
+    if (chatResultBubble) { chatResultBubble.remove(); chatResultBubble = null; }
+    if (chatStatusBubble) { chatStatusBubble.remove(); chatStatusBubble = null; }
+  }
   function submitChatPrompt() {
     const value = chatPrompt?.value?.trim();
-    if (!value || value === lastChatPrompt) return;
+    const now = Date.now();
+    if (!value || (value === lastChatPrompt && now - lastChatSubmittedAt < 1200)) return;
     lastChatPrompt = value;
+    lastChatSubmittedAt = now;
+    clearChatResult();
     chatAppend(value, 'user');
   }
   if (chatCreate) chatCreate.addEventListener('click', submitChatPrompt, true);
@@ -315,11 +323,11 @@
   }, true);
   if (chatFile) chatFile.addEventListener('change', () => {
     const file = chatFile.files && chatFile.files[0];
-    if (file) chatAppend('Attached PSD: ' + file.name, 'attachment');
+    if (file) { clearChatResult(); chatAppend('Attached PSD: ' + file.name, 'attachment'); }
   });
   if (chatUrl) chatUrl.addEventListener('change', () => {
     const value = chatUrl.value.trim();
-    if (value) chatAppend('Source link: ' + value, 'attachment');
+    if (value) { clearChatResult(); chatAppend('Source link: ' + value, 'attachment'); }
   });
   if (chatStatus && typeof MutationObserver === 'function') {
     const observer = new MutationObserver(() => {
