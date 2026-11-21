@@ -42,7 +42,11 @@
     } finally { clearTimeout(timeout); }
   }
   function sourceURL(text) {
-    const u = new URL(text);
+    const value = typeof text === 'string' ? text.trim() : '';
+    if (!value) throw Error('No PSD file selected. Attach a .psd file or paste a public HTTPS link.');
+    let u;
+    try { u = new URL(value); }
+    catch (_) { throw Error('The PSD link is not a valid absolute URL. Paste a complete HTTPS link or attach the PSD file.'); }
     if (u.protocol !== 'https:' || u.username || u.password || u.port || u.hash)
       throw Error('Provide a public HTTPS PSD or supported file-share link');
     if (['localhost', '127.0.0.1', '[::1]'].includes(u.hostname))
@@ -73,13 +77,19 @@
     return bytes;
   }
   async function getBytes() {
-    const file = $('file').files[0];
+    const file = $('file')?.files?.[0] || null;
     if (file) {
-      if (file.size > LIMIT) throw Error('PSD is larger than 180 MB');
+      if (typeof file.arrayBuffer !== 'function') throw Error('The selected PSD file cannot be read by this browser');
+      if (!Number.isFinite(file.size) || file.size > LIMIT) throw Error('PSD is larger than 180 MB or has an invalid size');
       if (file.size < 26) throw Error('Selected PSD is empty or truncated');
-      return file.arrayBuffer();
+      const bytes = await file.arrayBuffer();
+      if (!(bytes instanceof ArrayBuffer) || bytes.byteLength !== file.size)
+        throw Error('The selected PSD could not be read completely');
+      return bytes;
     }
-    const u = sourceURL($('url').value.trim());
+    const link = $('url').value.trim();
+    if (!link) throw Error('Attach a PSD file or paste a public HTTPS link before creating animation.');
+    const u = sourceURL(link);
     const suffix = '/api/psd-source?url=' + encodeURIComponent(u.href);
     const routes = [];
     if (['files.catbox.moe', 'litter.catbox.moe'].includes(u.hostname)) {
@@ -206,11 +216,14 @@
   async function create() {
     clearDownload();
     $('create').disabled = true;
+    let stage = 'input validation';
     try {
       const motion = $('prompt').value.trim();
       if (!motion || motion.length > 20000) throw Error('Enter a motion description (up to 20,000 characters)');
+      stage = 'PSD input';
       message('Loading PSD…');
       const rawPSD = await getBytes();
+      stage = 'PSD parsing';
       const source = parse(rawPSD);
       source.loadedBytes = rawPSD.byteLength;
       $('layer-count').textContent = String(source.layers.length);
@@ -226,6 +239,7 @@
         layers: source.layers, description: motion,
         instructions: 'Preserve original draw order and all source layer pixels. Keep frame-zero setup pose. Return complete animated Spine scene. Do not fake 360-degree depth.' });
       if (request.length > 19 * 1024 * 1024) throw Error('PSD exceeds cloud planning limit');
+      stage = 'AI planning';
       message('Cloud animation in progress…');
       let plan, technicalFallback = false;
       try {
@@ -255,6 +269,7 @@
       const exportBody = JSON.stringify({ canvas: { width: source.width, height: source.height },
         scene: plan.scene, layers: source.layers });
       if (exportBody.length > 19 * 1024 * 1024) throw Error('Export payload is too large');
+      stage = 'Spine ZIP export';
       message('Exporting Spine ZIP…');
       const result = await fetchLimited(EXPORTER + '/api/build', {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: exportBody
@@ -267,7 +282,9 @@
       $('download').hidden = false;
       message(technicalFallback ? 'ZIP ready (technical bounce only; AI timed out). Artistic approval pending.' : 'ZIP ready. Check animations in Spine Editor 4.3 before production.');
     } catch (error) {
-      message('Generation failed: ' + (error?.name === 'AbortError' ? '15-second network timeout' : error.message));
+      const detail = error?.name === 'AbortError' ? '15-second network timeout' :
+        (error?.message || String(error));
+      message('Generation failed [' + stage + ']: ' + detail);
     } finally {
       $('create').disabled = false;
     }
