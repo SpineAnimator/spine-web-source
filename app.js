@@ -303,8 +303,12 @@
   function chatAppend(text, kind) {
     const value = String(text || '').trim();
     if (!value || !chatHistory) return null;
-    document.body.classList.add('has-chat-content');
-    if (chatWelcome) chatWelcome.hidden = true;
+    // Attaching a source must not collapse the welcome block before the
+    // user's next pointer gesture; that layout shift can move Animate mid-click.
+    if (kind !== 'attachment') {
+      document.body.classList.add('has-chat-content');
+      if (chatWelcome) chatWelcome.hidden = true;
+    }
     const node = document.createElement('div');
     node.className = kind === 'attachment' ? 'chat-attachment-message' :
       kind === 'assistant' ? 'chat-assistant-message' : 'chat-user-message';
