@@ -798,6 +798,72 @@ body.is-generating .chat-main .card-motion { position: static; }
   .chat-actions { justify-content: stretch; }
   .chat-actions #generate, .chat-actions #download { flex: 1 1 100%; text-align: center; }
 }
+
+/* One-row composer: link, source attachment and generation are one control group. */
+.chat-main .chat-attachment-row { min-width: 0; }
+.chat-main .url-row.chat-source-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 88px 88px;
+  align-items: stretch;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  flex-wrap: nowrap;
+}
+.chat-main .chat-source-actions #source-url {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  height: 46px;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+.chat-main .chat-source-actions .compact-file {
+  width: 88px;
+  min-width: 88px;
+  max-width: 88px;
+  height: 46px;
+  min-height: 46px;
+  flex: none;
+  padding: 8px 5px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.chat-main .chat-source-actions #generate {
+  display: inline-flex;
+  width: 88px;
+  min-width: 88px;
+  max-width: 88px;
+  min-height: 46px;
+  height: 46px;
+  margin: 0;
+  padding: 8px 5px;
+  flex: none;
+  gap: 0;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.chat-main .chat-source-actions #generate kbd { display: none; }
+.chat-main .chat-actions { margin-top: 8px; }
+@media (max-width: 640px) {
+  .chat-main .url-row.chat-source-actions {
+    grid-template-columns: minmax(0, 1fr) 80px 80px;
+    gap: 6px;
+  }
+  .chat-main .chat-source-actions .compact-file,
+  .chat-main .chat-source-actions #generate {
+    width: 80px;
+    min-width: 80px;
+    max-width: 80px;
+    font-size: 11px;
+  }
+  .chat-main .chat-source-actions #source-url {
+    padding: 9px 8px;
+    font-size: 12px;
+  }
+  .chat-actions { justify-content: stretch; }
+  .chat-actions #download { flex: 1 1 100%; text-align: center; }
+}
 </style>
   <script defer src="https://cdn.jsdelivr.net/npm/ag-psd@14.5.2/dist/bundle.js"></script>
 
@@ -850,14 +916,14 @@ body.is-generating .chat-main .card-motion { position: static; }
           <div id="inputs" class="input-row" hidden></div>
         </div>
         <div class="chat-attachment-row">
-          <div class="url-row">
-            <input id="source-url" type="url" inputmode="url" aria-label="PSD link" placeholder="Paste a PSD link" autocomplete="off" spellcheck="false">
-            <label for="source-file" id="file-drop" class="button button-secondary compact-file" tabindex="0" role="button" aria-label="Attach a PSD file">
-              <span>Attach PSD</span><input id="source-file" type="file" accept=".psd,.json,image/vnd.adobe.photoshop,application/json"><span id="file-name" hidden></span>
+          <div class="url-row chat-source-actions" role="group" aria-label="Animation source and generation">
+            <input id="source-url" type="url" inputmode="url" aria-label="PSD link" placeholder="Paste link" autocomplete="off" spellcheck="false">
+            <label for="source-file" id="file-drop" class="button button-secondary compact-file" tabindex="0" role="button" aria-label="Add PSD or JSON file">
+              <span>Add PSD</span><input id="source-file" type="file" accept=".psd,.json,image/vnd.adobe.photoshop,application/json"><span id="file-name" hidden></span>
             </label>
+            <button id="generate" type="button" class="button button-primary chat-generate" aria-label="Animate and generate Spine project" title="Generate animation"><span>Animate</span><kbd>Ctrl+Enter</kbd></button>
           </div>
           <div class="chat-actions">
-            <button id="generate" type="button" class="button button-primary"><span>Create animation</span><kbd>Ctrl+Enter</kbd></button>
             <a id="download" class="button button-download" hidden>Download project</a>
             <a id="catalog-link" class="catalog-link" hidden></a>
           </div>
