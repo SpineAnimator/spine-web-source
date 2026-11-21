@@ -310,7 +310,9 @@
       kind === 'assistant' ? 'chat-assistant-message' : 'chat-user-message';
     node.textContent = value;
     chatHistory.appendChild(node);
-    node.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    // Appending a source attachment must not smooth-scroll the viewport: that moves
+    // the composer under an in-flight pointer gesture and can drop the Animate click.
+    if (kind !== 'attachment') node.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     return node;
   }
   const chatPrompt = $('prompt');
