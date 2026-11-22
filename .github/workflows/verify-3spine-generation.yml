@@ -92,5 +92,34 @@ jobs:
               assert z.testzip() is None, 'ZIP CRC validation failed'
               assert any(name.endswith('.json') for name in files), 'Spine JSON missing'
               assert any(name.endswith('.png') for name in files), 'Textures missing'
-          print('SYNTHETIC_SCENE_SPINE_ZIP_PASS')
+              skeleton_name = next((name for name in files if name.lower() == 'skeleton.json'), None)
+              assert skeleton_name, 'skeleton.json missing'
+              skeleton = json.loads(z.read(skeleton_name))
+              animations = skeleton.get('animations')
+              assert isinstance(animations, dict) and animations, 'Spine animations object is empty'
+              def moving_tracks(value, path=''):
+                  found = []
+                  if isinstance(value, dict):
+                      for key, child in value.items():
+                          found.extend(moving_tracks(child, path+'.'+key if path else key))
+                  elif isinstance(value, list):
+                      frames = [frame for frame in value if isinstance(frame, dict)
+                                and isinstance(frame.get('time'), (int, float))]
+                      if len(frames) >= 2:
+                          times = {frame['time'] for frame in frames}
+                          poses = {json.dumps({k:v for k,v in frame.items()
+                                               if k not in ('time','curve','c2','c3')},
+                                              sort_keys=True, separators=(',',':'))
+                                   for frame in frames}
+                          if len(times) >= 2 and len(poses) >= 2:
+                              found.append({'path':path,'keys':len(frames),
+                                            'distinct_times':len(times),'distinct_values':len(poses)})
+                      for index, child in enumerate(value):
+                          found.extend(moving_tracks(child, f'{path}[{index}]'))
+                  return found
+              for name, animation in animations.items():
+                  tracks = moving_tracks(animation, name)
+                  assert tracks, f'Animation {name!r} is static: no changing keyed values at distinct times'
+                  print('ANIMATION_MOTION_AUDIT', name, json.dumps(tracks[:12]))
+          print('SYNTHETIC_SCENE_SPINE_ZIP_WITH_REAL_MOTION_PASS')
           PY
