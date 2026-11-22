@@ -18,7 +18,7 @@ export async function submitSpineProject(zip,filename="project.zip"){
   filename=String(filename).replace(/[^a-zA-Z0-9._-]/g,"_").slice(0,85);
   if(!filename.endsWith(".zip"))filename+=".zip";
   const session=await parse(await fetch(URL_BASE+"/v2/sessions",{
-    method:"POST",headers:{"Content-Type":"application/json"},body:"{}"
+    method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode:"mask"})
   }));
   const parts=Math.ceil(data.length/CHUNK);
   for(let i=0;i<parts;i++){
@@ -48,7 +48,7 @@ export async function pollSpineResult(job,{onStatus=()=>{},timeoutMs=35*60*1000,
       const receipt=report.receipt;
       if(!Number.isInteger(report.parts)||report.parts<1||report.parts>16
         ||report.size<24||report.size>MAX||report.inputSha256!==job.inputSha256
-        ||!receipt||receipt.spineVersion!=="4.3.26"||receipt.sourceSha256!==job.inputSha256
+        ||!receipt||receipt.mode!=="mask"||receipt.spineVersion!=="4.3.26"||receipt.sourceSha256!==job.inputSha256
         ||receipt.inputSha256!==job.inputSha256||receipt.resultSha256!==report.sha256
         ||receipt.nativeImportVerified!==true||receipt.nativeExportVerified!==true
         ||receipt.animationsPreserved!==true||receipt.clippingAttachments!==1
