@@ -28,11 +28,12 @@ export async function submitSpineProject(zip,filename="project.zip"){
         "X-Chunk-SHA256":await digest(chunk)}),body:chunk
     }));
   }
+  const inputSha256=await digest(data);
   await parse(await fetch(URL_BASE+"/v2/sessions/"+session.id+"/commit",{
     method:"POST",headers:bearer(session.uploadToken,{"Content-Type":"application/json"}),
-    body:JSON.stringify({parts,size:data.length,sha256:await digest(data),filename})
+    body:JSON.stringify({parts,size:data.length,sha256:inputSha256,filename})
   }));
-  return {id:session.id,readToken:session.resultToken};
+  return {id:session.id,readToken:session.resultToken,inputSha256};
 }
 export async function pollSpineResult(job,{onStatus=()=>{},timeoutMs=35*60*1000,signal}={}){
   const start=Date.now();
@@ -44,8 +45,16 @@ export async function pollSpineResult(job,{onStatus=()=>{},timeoutMs=35*60*1000,
     onStatus(report);
     if(report.status==="failed")throw Error("Linux Spine Editor failed: "+report.reason);
     if(report.status==="ready"){
+      const receipt=report.receipt;
       if(!Number.isInteger(report.parts)||report.parts<1||report.parts>16
-        ||report.size<24||report.size>MAX)throw Error("Invalid native result metadata");
+        ||report.size<24||report.size>MAX||report.inputSha256!==job.inputSha256
+        ||!receipt||receipt.spineVersion!=="4.3.26"||receipt.sourceSha256!==job.inputSha256
+        ||receipt.inputSha256!==job.inputSha256||receipt.resultSha256!==report.sha256
+        ||receipt.nativeImportVerified!==true||receipt.nativeExportVerified!==true
+        ||receipt.animationsPreserved!==true||receipt.clippingAttachments!==1
+        ||!Number.isInteger(receipt.originalAssetsRetained)||receipt.originalAssetsRetained<1
+        ||!Number.isInteger(receipt.vertices)||receipt.vertices<3)
+        throw Error("Missing or invalid licensed Spine Editor 4.3.26 receipt bound to the exact ZIP hashes");
       const chunks=[];let total=0;
       for(let i=0;i<report.parts;i++){
         const response=await fetch(URL_BASE+"/v2/sessions/"+job.id+"/result/"+i,{
@@ -64,7 +73,7 @@ export async function pollSpineResult(job,{onStatus=()=>{},timeoutMs=35*60*1000,
       await fetch(URL_BASE+"/v2/sessions/"+job.id,{
         method:"DELETE",headers:bearer(job.readToken),signal
       }).catch(()=>{});
-      return final;
+      return {bytes:final,inputSha256:job.inputSha256,outputSha256:report.sha256,receipt,jobId:job.id};
     }
     await pause(7000);
   }
