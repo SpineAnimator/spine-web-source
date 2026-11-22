@@ -19,10 +19,11 @@ test('Spine website client submits SHA-checked ZIP and verifies returned native 
     const headers=init.headers||{};
     const json=data=>new Response(JSON.stringify(data),{status:200,headers:{'Content-Type':'application/json'}});
     jobs.push([init.method||'GET',path]);
-    if(path==='/v2/sessions'&&init.method==='POST')return new Response(JSON.stringify({
-      id,uploadToken:'upload-only-token',resultToken:'read-only-token',
-      partBytes:4194304,maxParts:16,maxBytes:67108864
-    }),{status:201,headers:{'Content-Type':'application/json'}});
+    if(path==='/v2/sessions'&&init.method==='POST'){
+      assert.equal(JSON.parse(init.body).mode,'mask');
+      return new Response(JSON.stringify({id,uploadToken:'upload-only-token',resultToken:'read-only-token',
+        partBytes:4194304,maxParts:16,maxBytes:67108864}),{status:201,headers:{'Content-Type':'application/json'}});
+    }
     if(path.endsWith('/input/0')){
       assert.equal(headers.Authorization,'Bearer upload-only-token');
       const b=new Uint8Array(init.body);
