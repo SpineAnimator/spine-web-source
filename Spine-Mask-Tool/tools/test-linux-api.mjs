@@ -40,7 +40,7 @@ test('Spine website client submits SHA-checked ZIP and verifies returned native 
       assert.equal(headers.Authorization,'Bearer read-only-token');
       const inputSha256=await checksum(input),outputSha256=await checksum(native);
       return json({status:'ready',size:native.length,parts:1,sha256:outputSha256,inputSha256,
-        receipt:{spineVersion:'4.3.26',sourceSha256:inputSha256,inputSha256,resultSha256:outputSha256,
+        receipt:{mode:'mask',spineVersion:'4.3.26',sourceSha256:inputSha256,inputSha256,resultSha256:outputSha256,
           nativeImportVerified:true,nativeExportVerified:true,animationsPreserved:true,
           clippingAttachments:1,originalAssetsRetained:3,vertices:12}});
     }
