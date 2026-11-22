@@ -103,8 +103,11 @@ jobs:
                       for key, child in value.items():
                           found.extend(moving_tracks(child, path+'.'+key if path else key))
                   elif isinstance(value, list):
-                      frames = [frame for frame in value if isinstance(frame, dict)
-                                and isinstance(frame.get('time'), (int, float))]
+                      # Spine JSON commonly omits time on the first key (implicit t=0).
+                      frames = [dict(frame, time=frame.get('time', 0))
+                                for index, frame in enumerate(value)
+                                if isinstance(frame, dict) and
+                                (isinstance(frame.get('time'), (int, float)) or index == 0)]
                       if len(frames) >= 2:
                           times = {frame['time'] for frame in frames}
                           poses = {json.dumps({k:v for k,v in frame.items()
