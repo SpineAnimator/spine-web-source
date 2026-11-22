@@ -92,8 +92,10 @@
     function scan(value, path, depth) {
       if (!value || typeof value !== 'object' || depth > 16) return;
       if (Array.isArray(value)) {
-        const frames = value.filter(frame => frame && typeof frame === 'object' &&
-          !Array.isArray(frame) && Number.isFinite(frame.time));
+        // Spine JSON commonly omits time on the first key (implicit t=0).
+        const frames = value.map((frame, index) => frame && typeof frame === 'object' &&
+          !Array.isArray(frame) && (Number.isFinite(frame.time) || index === 0)
+          ? { ...frame, time: Number.isFinite(frame.time) ? frame.time : 0 } : null).filter(Boolean);
         if (frames.length >= 2) {
           const times = new Set(frames.map(frame => frame.time));
           const poses = new Set(frames.map(frame => JSON.stringify(
