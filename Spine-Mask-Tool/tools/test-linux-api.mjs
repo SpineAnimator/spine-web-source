@@ -75,7 +75,7 @@ assert.match(app,/void verifyLinuxZip\(zip\)/);
 assert.match(app,/inputSha256:native.inputSha256/);
 assert.match(app,/outputSha256:native.outputSha256/);
 assert.match(app,/receipt:native.receipt/);
-assert.ok(app.includes('linux:native.linux||null'));
+assert.ok(app.includes('linux:{status:"ready",id:native.jobId'));
 assert.match(app,/id:native.jobId/);
 assert.match(html,/id="quick-install-bridge"/);
 assert.match(html,/id="quick-from-spine"/);
