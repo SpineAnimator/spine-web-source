@@ -38,7 +38,7 @@ try{
   assert.equal(simpleSurface.hidden,true,"Simple mode must hide explanatory and advanced text");
   assert.match(simpleSurface.text,/Spine Mask Tool/);
   assert.match(simpleSurface.text,/Agents/);
-  assert.match(simpleSurface.text,/Сделать маску/);
+  assert.match(simpleSurface.text,/Make Mask/);
   assert.match(simpleSurface.text,/Install Bridge/);
   assert.doesNotMatch(simpleSurface.text,/Drop files|No image supplied|One clipping mask|Spine Editor Bridge/);
   console.log("PUBLIC_SITE_BOOT",{
@@ -92,7 +92,7 @@ try{
   await a.check();
   assert.equal(await a.isChecked(),true,"An individual image attachment must be selectable");
   assert.equal(await b.isChecked(),false,"Selecting one image must not select another image");
-  assert.match(await page.locator("#do-all").textContent(),/Сделать маску · 1/);
+  assert.match(await page.locator("#do-all").textContent(),/Make Mask · 1/);
   await a.uncheck();
   await leftBone.check();
   await rightSlot.check();
@@ -100,8 +100,8 @@ try{
   assert.equal(await b.isChecked(),true,"Selecting a slot must select its attached image");
   const spacer=page.locator("#selection-tree label.tree-row").filter({hasText:"partSpacer"}).locator("input");
   assert.equal(await spacer.isChecked(),false,"An unselected image between selected slots stays unselected");
-  assert.match(await page.locator("#do-all").textContent(),/Сделать маску · 2/);
-  assert.match(await page.locator("#do-all").getAttribute("title"),/промежуточные слоты/);
+  assert.match(await page.locator("#do-all").textContent(),/Make Mask · 2/);
+  assert.match(await page.locator("#do-all").getAttribute("title"),/intermediate slots/);
   const wait=page.waitForEvent("download",{timeout:60000});
   await page.locator("#do-all").click();
   const download=await wait;
