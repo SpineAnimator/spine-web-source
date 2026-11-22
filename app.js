@@ -41,6 +41,82 @@
       throw error;
     } finally { clearTimeout(timeout); }
   }
+  async function inspectSpineZip(bytes, plannedClips) {
+    // Inspect the actual exported skeleton.json, not merely the ZIP magic bytes.
+    const view = new DataView(bytes);
+    const minEocd = Math.max(0, bytes.byteLength - 22 - 65535);
+    let eocd = -1;
+    for (let p = bytes.byteLength - 22; p >= minEocd; p--) {
+      if (view.getUint32(p, true) === 0x06054b50) { eocd = p; break; }
+    }
+    if (eocd < 0) throw Error('ZIP directory is missing; no Spine animation delivered.');
+    const entries = view.getUint16(eocd + 10, true);
+    let cursor = view.getUint32(eocd + 16, true);
+    let skeleton = null;
+    for (let i = 0; i < entries; i++) {
+      if (cursor + 46 > bytes.byteLength || view.getUint32(cursor, true) !== 0x02014b50)
+        throw Error('ZIP directory is corrupt; no Spine animation delivered.');
+      const method = view.getUint16(cursor + 10, true);
+      const compressedSize = view.getUint32(cursor + 20, true);
+      const uncompressedSize = view.getUint32(cursor + 24, true);
+      const nameLength = view.getUint16(cursor + 28, true);
+      const extraLength = view.getUint16(cursor + 30, true);
+      const commentLength = view.getUint16(cursor + 32, true);
+      const localOffset = view.getUint32(cursor + 42, true);
+      const name = new TextDecoder().decode(new Uint8Array(bytes, cursor + 46, nameLength));
+      if (name.toLowerCase() === 'skeleton.json' || (!skeleton && name.toLowerCase().endsWith('.json'))) {
+        if (localOffset + 30 > bytes.byteLength || view.getUint32(localOffset, true) !== 0x04034b50)
+          throw Error('Spine JSON local ZIP entry is corrupt.');
+        const localName = view.getUint16(localOffset + 26, true);
+        const localExtra = view.getUint16(localOffset + 28, true);
+        const start = localOffset + 30 + localName + localExtra;
+        if (start + compressedSize > bytes.byteLength) throw Error('Spine JSON ZIP entry is truncated.');
+        const packed = bytes.slice(start, start + compressedSize);
+        let raw;
+        if (method === 0) raw = packed;
+        else if (method === 8 && typeof DecompressionStream === 'function') {
+          const stream = new Blob([packed]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+          raw = await new Response(stream).arrayBuffer();
+        } else throw Error('Unsupported Spine JSON ZIP compression method: ' + method);
+        if (raw.byteLength !== uncompressedSize) throw Error('Spine JSON decompressed size mismatch.');
+        skeleton = JSON.parse(new TextDecoder().decode(raw));
+        break;
+      }
+      cursor += 46 + nameLength + extraLength + commentLength;
+    }
+    if (!skeleton || !skeleton.animations || typeof skeleton.animations !== 'object')
+      throw Error('Export ZIP has no valid Spine skeleton.json animations object.');
+    const animations = Object.entries(skeleton.animations);
+    if (!animations.length) throw Error('Exported Spine project contains no animations.');
+    const moving = [];
+    function scan(value, path, depth) {
+      if (!value || typeof value !== 'object' || depth > 16) return;
+      if (Array.isArray(value)) {
+        const frames = value.filter(frame => frame && typeof frame === 'object' &&
+          !Array.isArray(frame) && Number.isFinite(frame.time));
+        if (frames.length >= 2) {
+          const times = new Set(frames.map(frame => frame.time));
+          const poses = new Set(frames.map(frame => JSON.stringify(
+            Object.fromEntries(Object.entries(frame).filter(([key]) =>
+              !['time', 'curve', 'c2', 'c3'].includes(key)))
+          )));
+          if (times.size >= 2 && poses.size >= 2)
+            moving.push({ path, keys: frames.length, distinctTimes: times.size, distinctValues: poses.size });
+        }
+        for (let i = 0; i < value.length; i++) scan(value[i], path + '[' + i + ']', depth + 1);
+        return;
+      }
+      for (const [key, child] of Object.entries(value))
+        scan(child, path ? path + '.' + key : key, depth + 1);
+    }
+    for (const [name, animation] of animations) scan(animation, name, 0);
+    if (!moving.length)
+      throw Error('Static Spine export rejected: no transform/deform timeline has different values at distinct times.');
+    if (!Array.isArray(plannedClips) || !plannedClips.length)
+      throw Error('Animation plan contains no declared clips.');
+    return { animationNames: animations.map(([name]) => name), movingTimelines: moving };
+  }
+
   function sourceURL(text) {
     const value = typeof text === 'string' ? text.trim() : '';
     if (!value) throw Error('No PSD file selected. Attach a .psd file or paste a public HTTPS link.');
@@ -214,7 +290,7 @@
       preview.hidden = false;
       const request = JSON.stringify({ image: source.composite.toDataURL('image/png'),
         layers: source.layers, description: motion,
-        instructions: 'Preserve original draw order and all source layer pixels. Keep frame-zero setup pose. Return complete animated Spine scene. Do not fake 360-degree depth.' });
+        instructions: 'Preserve original draw order and all source layer pixels. Keep frame-zero setup pose. This MUST be a genuinely animated Spine scene, never static keys: author real translate/rotate/scale/shear or mesh-deform timelines with at least two different numeric poses at distinct timestamps in every requested motion clip. Include anticipation, action, follow-through, settle and return where appropriate. Do not emit duplicate keys or empty animations. Verify evaluated poses differ over time while frame zero matches the source. Do not fake 360-degree depth.' });
       if (request.length > 19 * 1024 * 1024) throw Error('PSD exceeds cloud planning limit');
       stage = 'AI planning';
       message('Cloud animation in progress…');
@@ -256,6 +332,8 @@
       const sig = new Uint8Array(result.bytes, 0, 4);
       if (sig.length < 4 || sig[0] !== 80 || sig[1] !== 75 || sig[2] !== 3 || sig[3] !== 4)
         throw Error('Server did not return a valid ZIP header');
+      const animationAudit = await inspectSpineZip(result.bytes, plan.scene.clips);
+      console.info('SPINE_ANIMATION_CONTENT_AUDIT', animationAudit);
       downloadURL = URL.createObjectURL(new Blob([result.bytes], { type: 'application/zip' }));
       $('download').href = downloadURL;
       $('download').hidden = false;
