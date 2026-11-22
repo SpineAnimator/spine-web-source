@@ -111,11 +111,16 @@
       for (const [key, child] of Object.entries(value))
         scan(child, path ? path + '.' + key : key, depth + 1);
     }
-    for (const [name, animation] of animations) scan(animation, name, 0);
-    if (!moving.length)
-      throw Error('Static Spine export rejected: no transform/deform timeline has different values at distinct times.');
     if (!Array.isArray(plannedClips) || !plannedClips.length)
       throw Error('Animation plan contains no declared clips.');
+    for (const [name, animation] of animations) {
+      const before = moving.length;
+      scan(animation, name, 0);
+      if (moving.length === before)
+        throw Error('Static Spine animation rejected: "' + name + '" has no changing keyed values at distinct times.');
+    }
+    if (!moving.length)
+      throw Error('Static Spine export rejected: no transform/deform timeline has different values at distinct times.');
     return { animationNames: animations.map(([name]) => name), movingTimelines: moving };
   }
 
