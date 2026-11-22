@@ -68,7 +68,7 @@ function boneMap(){return new Map((state.json?.bones||[]).map(b=>[b.name,b]));}
 function descendantsOf(name){const map=boneMap(),out=new Set([name]);let changed=true;while(changed){changed=false;for(const b of map.values())if(b.parent&&out.has(b.parent)&&!out.has(b.name)){out.add(b.name);changed=true;}}return out;}
 function updateMakeButton(){
  const button=$("do-all"),n=state.selectedChoiceIndexes?.size||0;
- button.textContent=n?"Make mask · "+n:"Make mask";
+ button.textContent=n?"Make Mask · "+n:"Make Mask";
  button.disabled=quickBusy||(!state.json&&!state.images.length&&!state.binary);
  const slots=state.json?.slots||[];
  const chosen=[...new Set(state.treeChoices.filter(e=>state.selectedChoiceIndexes.has(e.choiceIndex)).map(e=>e.choice.slot))];
@@ -568,7 +568,7 @@ async function doEverything() {
   } finally {
     quickBusy = false;
     button.disabled = false;
-    button.textContent = state.actionErrorLabel || (state.editorOpenResult === true ? "Opened in Spine" : state.editorOpenResult === "saved" ? "Saved" : state.editorOpenResult === false ? "Spine error" : "Make mask");
+    button.textContent = state.actionErrorLabel || (state.editorOpenResult === true ? "Opened in Spine" : state.editorOpenResult === "saved" ? "Saved" : state.editorOpenResult === false ? "Spine error" : "Make Mask");
   }
 }
 async function verifyLinuxZip(zip=null,{download=true}={}){
