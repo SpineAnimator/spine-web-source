@@ -593,14 +593,16 @@ async function verifyLinuxZip(zip=null,{download=true}={}){
       state.linuxCI={id:job.id,status:report.status};
       if(report.status==="queued")status("Ubuntu Spine Editor verification running or queued: "+job.id);
     }});
-    linuxResultUrl=URL.createObjectURL(new Blob([native],{type:"application/zip"}));
+    linuxResultUrl=URL.createObjectURL(new Blob([native.bytes],{type:"application/zip"}));
     link.href=linuxResultUrl;
     link.hidden=false;
-    state.linuxCI={id:job.id,status:"ready",bytes:native.length};
+    state.linuxCI={id:job.id,status:"ready",bytes:native.bytes.length,
+      inputSha256:native.inputSha256,outputSha256:native.outputSha256};
     status("Linux Spine Editor verified complete project. Native ZIP available.");
     const filename=(state.base||"spine")+"-linux-native.zip";
-    if(download)downloadBlob(new Blob([native],{type:"application/zip"}),filename);
-    return {status:"ready",bytes:native,filename,jobId:job.id,verifiedBy:"Spine Editor 4.3.26"};
+    if(download)downloadBlob(new Blob([native.bytes],{type:"application/zip"}),filename);
+    return {status:"ready",bytes:native.bytes,filename,jobId:job.id,verifiedBy:"Spine Editor 4.3.26",
+      inputSha256:native.inputSha256,outputSha256:native.outputSha256,receipt:native.receipt};
   }catch(error){
     state.linuxCI={status:"failed",error:String(error?.message||error)};
     status("Linux CI: "+error.message+" · The local Spine ZIP is unaffected.",true);
@@ -670,7 +672,8 @@ Object.defineProperty(window,"SpineMaskAgentControl",{
         return {status:"failed",error:native.error||"Native Spine Editor verification did not complete.",
           mask:{result:state.result.mask.stats,linux:state.linuxCI||{status:"failed"}}};
       return {status:"ready",artifact:{bytes:native.bytes,filename:native.filename},
-        mask:{result:state.result.mask.stats,linux:{status:"ready",jobId:native.jobId,
+        mask:{result:state.result.mask.stats,linux:{status:"ready",id:native.jobId,bytes:native.bytes.length,
+          inputSha256:native.inputSha256,outputSha256:native.outputSha256,receipt:native.receipt,
           verifiedBy:native.verifiedBy}}};
     },
     generate:()=>generate(),
