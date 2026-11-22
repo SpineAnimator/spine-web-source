@@ -19,16 +19,19 @@
       const response = await fetch(url, { ...init, credentials: 'omit', mode: 'cors',
         redirect: 'error', signal: controller.signal });
       if (!response.ok) {
-        let reason = '';
+        let reason = '', remoteCode = '';
         if (/json/i.test(response.headers.get('content-type') || '')) {
           try {
             const detail = await response.json();
             reason = detail?.error?.message || (typeof detail?.error === 'string' ? detail.error : '') || detail?.message || '';
+            remoteCode = detail?.error?.code || detail?.code || detail?.errorCode || '';
           } catch (_) {}
         }
         const error = new Error(stage + ': HTTP ' + response.status +
           (reason ? ' — ' + String(reason).slice(0, 240) : ''));
         error.status = response.status;
+        error.remoteCode = String(remoteCode || '');
+        error.cfRay = response.headers.get('cf-ray') || '';
         throw error;
       }
       const expected = Number(response.headers.get('content-length'));
@@ -37,91 +40,337 @@
       if (bytes.byteLength > limit) throw Error(stage + ': response is too large');
       return { response, bytes };
     } catch (error) {
-      if (error?.name === 'AbortError') throw Error(stage + ': ' + Math.round(timeoutMs / 1000) + '-second network timeout');
+      if (error?.name === 'AbortError') {
+        const timeout = Error(stage + ': ' + Math.round(timeoutMs / 1000) + '-second network timeout');
+        timeout.code = 'NETWORK_TIMEOUT';
+        timeout.cause = error;
+        throw timeout;
+      }
+      if (error?.name === 'TypeError' || /failed to fetch|networkerror|load failed|fetch failed/i.test(String(error?.message || ''))) {
+        const network = Error(stage + ': network/CORS/DNS/TLS connection failed (' + String(error?.message || 'fetch failed').slice(0, 160) + ')');
+        network.code = 'NETWORK_ERROR';
+        network.cause = error;
+        throw network;
+      }
       throw error;
     } finally { clearTimeout(timeout); }
   }
-  async function inspectSpineZip(bytes, plannedClips) {
-    // Inspect the actual exported skeleton.json, not merely the ZIP magic bytes.
+  const TRANSIENT_PLANNER_HTTP = new Set([408, 425, 429, 500, 502, 503, 504]);
+  function isTransientPlannerError(error) {
+    if (error?.remoteCode === 'ANALYSIS_SCHEMA' || /ANALYSIS_SCHEMA|Invalid visual subject/i.test(String(error?.message || ''))) return false;
+    return error?.code === 'NETWORK_ERROR' || error?.code === 'NETWORK_TIMEOUT' ||
+      TRANSIENT_PLANNER_HTTP.has(error?.status);
+  }
+  async function fetchPlannerWithRetry(body) {
+    let lastError;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        return await fetchLimited(STUDIO + '/api/plan', {
+          method: 'POST', headers: { 'content-type': 'application/json' }, body
+        }, 20 * 1024 * 1024, 'AI planner', 45000);
+      } catch (error) {
+        lastError = error;
+        if (attempt >= 3 || !isTransientPlannerError(error)) throw error;
+        const delay = attempt === 1 ? 800 : 1600;
+        message('AI planner connection interrupted; retry ' + (attempt + 1) + '/3: ' + String(error.message || error).slice(0, 140));
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+    throw lastError || Error('AI planner did not respond');
+  }
+  async function inspectSpineZip(bytes, plannedClips, source) {
+    if (!(bytes instanceof ArrayBuffer) || bytes.byteLength < 22)
+      throw Error('ZIP archive is truncated.');
     const view = new DataView(bytes);
     const minEocd = Math.max(0, bytes.byteLength - 22 - 65535);
     let eocd = -1;
     for (let p = bytes.byteLength - 22; p >= minEocd; p--) {
       if (view.getUint32(p, true) === 0x06054b50) { eocd = p; break; }
     }
-    if (eocd < 0) throw Error('ZIP directory is missing; no Spine animation delivered.');
+    if (eocd < 0) throw Error('ZIP end-of-central-directory record is missing.');
+    const disk = view.getUint16(eocd + 4, true);
+    const centralDisk = view.getUint16(eocd + 6, true);
+    const diskEntries = view.getUint16(eocd + 8, true);
     const entries = view.getUint16(eocd + 10, true);
-    let cursor = view.getUint32(eocd + 16, true);
-    let skeleton = null;
+    const centralSize = view.getUint32(eocd + 12, true);
+    const centralOffset = view.getUint32(eocd + 16, true);
+    const commentLength = view.getUint16(eocd + 20, true);
+    if (disk !== 0 || centralDisk !== 0 || diskEntries !== entries || !entries || entries > 1024 ||
+        entries === 0xffff || centralOffset === 0xffffffff || centralSize === 0xffffffff ||
+        centralOffset + centralSize !== eocd || eocd + 22 + commentLength !== bytes.byteLength)
+      throw Error('ZIP directory metadata is inconsistent or unsupported.');
+    const decoder = new TextDecoder();
+    const files = new Map();
+    const localOffsets = new Set();
+    const ranges = [];
+    const crcTable = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = (c & 1) ? (c >>> 1) ^ 0xedb88320 : c >>> 1;
+      crcTable[n] = c >>> 0;
+    }
+    function crc32(data) {
+      let c = 0xffffffff;
+      for (let i = 0; i < data.length; i++) c = (c >>> 8) ^ crcTable[(c ^ data[i]) & 255];
+      return (c ^ 0xffffffff) >>> 0;
+    }
+    async function unpack(method, packed) {
+      if (method === 0) return packed;
+      if (method === 8 && typeof DecompressionStream === 'function') {
+        const stream = new Blob([packed]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+        return new Uint8Array(await new Response(stream).arrayBuffer());
+      }
+      throw Error('Unsupported ZIP compression method: ' + method);
+    }
+    let cursor = centralOffset;
     for (let i = 0; i < entries; i++) {
-      if (cursor + 46 > bytes.byteLength || view.getUint32(cursor, true) !== 0x02014b50)
-        throw Error('ZIP directory is corrupt; no Spine animation delivered.');
+      if (cursor + 46 > eocd || view.getUint32(cursor, true) !== 0x02014b50)
+        throw Error('ZIP central directory entry is corrupt.');
+      const flags = view.getUint16(cursor + 8, true);
       const method = view.getUint16(cursor + 10, true);
+      const expectedCrc = view.getUint32(cursor + 16, true);
       const compressedSize = view.getUint32(cursor + 20, true);
       const uncompressedSize = view.getUint32(cursor + 24, true);
       const nameLength = view.getUint16(cursor + 28, true);
       const extraLength = view.getUint16(cursor + 30, true);
-      const commentLength = view.getUint16(cursor + 32, true);
+      const entryCommentLength = view.getUint16(cursor + 32, true);
+      const startDisk = view.getUint16(cursor + 34, true);
       const localOffset = view.getUint32(cursor + 42, true);
-      const name = new TextDecoder().decode(new Uint8Array(bytes, cursor + 46, nameLength));
-      if (name.toLowerCase() === 'skeleton.json' || (!skeleton && name.toLowerCase().endsWith('.json'))) {
-        if (localOffset + 30 > bytes.byteLength || view.getUint32(localOffset, true) !== 0x04034b50)
-          throw Error('Spine JSON local ZIP entry is corrupt.');
-        const localName = view.getUint16(localOffset + 26, true);
-        const localExtra = view.getUint16(localOffset + 28, true);
-        const start = localOffset + 30 + localName + localExtra;
-        if (start + compressedSize > bytes.byteLength) throw Error('Spine JSON ZIP entry is truncated.');
-        const packed = bytes.slice(start, start + compressedSize);
-        let raw;
-        if (method === 0) raw = packed;
-        else if (method === 8 && typeof DecompressionStream === 'function') {
-          const stream = new Blob([packed]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
-          raw = await new Response(stream).arrayBuffer();
-        } else throw Error('Unsupported Spine JSON ZIP compression method: ' + method);
-        if (raw.byteLength !== uncompressedSize) throw Error('Spine JSON decompressed size mismatch.');
-        skeleton = JSON.parse(new TextDecoder().decode(raw));
-        break;
-      }
-      cursor += 46 + nameLength + extraLength + commentLength;
+      if ((flags & 1) || startDisk !== 0 || compressedSize === 0xffffffff ||
+          uncompressedSize === 0xffffffff || localOffset === 0xffffffff ||
+          cursor + 46 + nameLength + extraLength + entryCommentLength > eocd)
+        throw Error('Encrypted, multi-disk or ZIP64 entries are not supported.');
+      const name = decoder.decode(new Uint8Array(bytes, cursor + 46, nameLength));
+      if (!name || name.startsWith('/') || name.includes('\\') ||
+          name.split('/').some(part => part === '..' || part === '') ||
+          files.has(name) || localOffsets.has(localOffset))
+        throw Error('ZIP contains an unsafe or duplicate path.');
+      if (localOffset + 30 > centralOffset || view.getUint32(localOffset, true) !== 0x04034b50)
+        throw Error('ZIP local file header is corrupt: ' + name);
+      const localFlags = view.getUint16(localOffset + 6, true);
+      const localMethod = view.getUint16(localOffset + 8, true);
+      const localCrc = view.getUint32(localOffset + 14, true);
+      const localCompressed = view.getUint32(localOffset + 18, true);
+      const localUncompressed = view.getUint32(localOffset + 22, true);
+      const localNameLength = view.getUint16(localOffset + 26, true);
+      const localExtraLength = view.getUint16(localOffset + 28, true);
+      const localName = decoder.decode(new Uint8Array(bytes, localOffset + 30, localNameLength));
+      const dataStart = localOffset + 30 + localNameLength + localExtraLength;
+      const dataEnd = dataStart + compressedSize;
+      if (localName !== name || localFlags !== flags || localMethod !== method ||
+          dataEnd > centralOffset || dataEnd > bytes.byteLength ||
+          (!(flags & 8) && (localCrc !== expectedCrc ||
+            localCompressed !== compressedSize || localUncompressed !== uncompressedSize)))
+        throw Error('ZIP local and central records disagree: ' + name);
+      const packed = new Uint8Array(bytes, dataStart, compressedSize);
+      const raw = await unpack(method, packed);
+      if (raw.byteLength !== uncompressedSize || crc32(raw) !== expectedCrc)
+        throw Error('ZIP entry size or CRC32 check failed: ' + name);
+      files.set(name, raw);
+      localOffsets.add(localOffset);
+      ranges.push([localOffset, dataEnd, name]);
+      cursor += 46 + nameLength + extraLength + entryCommentLength;
     }
-    if (!skeleton || !skeleton.animations || typeof skeleton.animations !== 'object')
-      throw Error('Export ZIP has no valid Spine skeleton.json animations object.');
-    const animations = Object.entries(skeleton.animations);
-    if (!animations.length) throw Error('Exported Spine project contains no animations.');
-    const moving = [];
-    function scan(value, path, depth) {
+    if (cursor !== centralOffset + centralSize)
+      throw Error('ZIP central directory size does not match its entries.');
+    ranges.sort((a, b) => a[0] - b[0]);
+    for (let i = 1; i < ranges.length; i++)
+      if (ranges[i][0] < ranges[i - 1][1])
+        throw Error('ZIP local entries overlap: ' + ranges[i][2]);
+    for (const name of ['skeleton.json', 'skeleton.atlas', 'manifest.json'])
+      if (!files.has(name)) throw Error('ZIP is missing required file: ' + name);
+    if (!source || !Array.isArray(source.layers) || !Array.isArray(plannedClips) || !plannedClips.length)
+      throw Error('Source layer inventory or planned clip list is missing.');
+    const skeleton = JSON.parse(decoder.decode(files.get('skeleton.json')));
+    const manifest = JSON.parse(decoder.decode(files.get('manifest.json')));
+    if (!skeleton.skeleton || !/^4\.3(?:\.|$)/.test(String(skeleton.skeleton.spine || '')) ||
+        !Array.isArray(skeleton.bones) || !skeleton.bones.length ||
+        !Array.isArray(skeleton.slots) || !skeleton.slots.length ||
+        !skeleton.animations || typeof skeleton.animations !== 'object')
+      throw Error('ZIP does not contain a valid Spine 4.3 skeleton.');
+    if (manifest.backend !== '2spine-cloud-executor' || manifest.spine !== '4.3.26' ||
+        manifest.layerCount !== source.layers.length || manifest.clipCount !== plannedClips.length ||
+        manifest.validation?.setupPreserved !== true ||
+        manifest.validation?.drawOrderPreserved !== true ||
+        manifest.validation?.frameZeroPreserved !== true ||
+        manifest.renderEvidence?.status !== 'not-rendered' || manifest.renderEvidence?.frameCount !== 0 ||
+        manifest.artisticApproval !== 'pending' || manifest.releaseReady !== false ||
+        manifest.nativeSpineEditorFile !== false)
+      throw Error('ZIP manifest does not certify the expected source-preserving pending export.');
+    const expectedAnimations = plannedClips.map(clip => clip.id).sort();
+    const animationEntries = Object.entries(skeleton.animations);
+    const actualAnimations = animationEntries.map(entry => entry[0]).sort();
+    if (expectedAnimations.length !== actualAnimations.length ||
+        expectedAnimations.some((name, index) => name !== actualAnimations[index]))
+      throw Error('ZIP animation names do not match the AI-authored clips.');
+    const atlasText = decoder.decode(files.get('skeleton.atlas'));
+    const textureNames = Array.from(files.keys()).filter(name => /^images\/.+\.png$/i.test(name)).sort();
+    const expectedTextures = source.layers.map(layer => 'images/' + layer.id + '.png').sort();
+    if (textureNames.length !== expectedTextures.length ||
+        expectedTextures.some((name, index) => name !== textureNames[index]))
+      throw Error('ZIP texture inventory does not match the original PSD layers.');
+    for (const layer of source.layers) {
+      const name = 'images/' + layer.id + '.png';
+      const png = files.get(name);
+      if (!png || png.length < 24 ||
+          [137, 80, 78, 71, 13, 10, 26, 10].some((value, index) => png[index] !== value))
+        throw Error('ZIP contains an invalid source texture: ' + layer.id);
+      const pngView = new DataView(png.buffer, png.byteOffset, png.byteLength);
+      const pngWidth = pngView.getUint32(16, false);
+      const pngHeight = pngView.getUint32(20, false);
+      if (String.fromCharCode(...png.slice(12, 16)) !== 'IHDR' ||
+          pngWidth !== layer.bounds.width || pngHeight !== layer.bounds.height)
+        throw Error('ZIP texture dimensions changed for source layer: ' + layer.id);
+      if (!atlasText.includes(name) || !atlasText.includes('\n' + layer.id + '\n'))
+        throw Error('Spine atlas is missing source layer region: ' + layer.id);
+    }
+    function scan(value, path, depth, found) {
       if (!value || typeof value !== 'object' || depth > 16) return;
       if (Array.isArray(value)) {
-        // Spine JSON commonly omits time on the first key (implicit t=0).
-        const frames = value.map((frame, index) => frame && typeof frame === 'object' &&
-          !Array.isArray(frame) && (Number.isFinite(frame.time) || index === 0)
-          ? { ...frame, time: Number.isFinite(frame.time) ? frame.time : 0 } : null).filter(Boolean);
-        if (frames.length >= 2) {
-          const times = new Set(frames.map(frame => frame.time));
-          const poses = new Set(frames.map(frame => JSON.stringify(
-            Object.fromEntries(Object.entries(frame).filter(([key]) =>
-              !['time', 'curve', 'c2', 'c3'].includes(key)))
-          )));
-          if (times.size >= 2 && poses.size >= 2)
-            moving.push({ path, keys: frames.length, distinctTimes: times.size, distinctValues: poses.size });
+        if (/\.bones\.[^.]+\.(translate|rotate|scale|shear)$/.test(path)) {
+          const frames = value.map((frame, index) => frame && typeof frame === 'object' &&
+            !Array.isArray(frame) && (Number.isFinite(frame.time) || index === 0)
+            ? { ...frame, time: Number.isFinite(frame.time) ? frame.time : 0 } : null).filter(Boolean);
+          const poses = new Set(frames.map(frame => JSON.stringify(Object.fromEntries(
+            Object.entries(frame).filter(([key]) => !['time', 'curve', 'c2', 'c3'].includes(key))
+          ))));
+          if (frames.length >= 2 && new Set(frames.map(frame => frame.time)).size >= 2 && poses.size >= 2)
+            found.push({ path, keys: frames.length, distinctTimes: new Set(frames.map(frame => frame.time)).size });
         }
-        for (let i = 0; i < value.length; i++) scan(value[i], path + '[' + i + ']', depth + 1);
+        for (let i = 0; i < value.length; i++) scan(value[i], path + '[' + i + ']', depth + 1, found);
         return;
       }
       for (const [key, child] of Object.entries(value))
-        scan(child, path ? path + '.' + key : key, depth + 1);
+        scan(child, path ? path + '.' + key : key, depth + 1, found);
     }
-    if (!Array.isArray(plannedClips) || !plannedClips.length)
-      throw Error('Animation plan contains no declared clips.');
-    for (const [name, animation] of animations) {
+    const moving = [];
+    for (const [name, animation] of animationEntries) {
       const before = moving.length;
-      scan(animation, name, 0);
+      scan(animation, name, 0, moving);
       if (moving.length === before)
-        throw Error('Static Spine animation rejected: "' + name + '" has no changing keyed values at distinct times.');
+        throw Error('Static Spine animation rejected: "' + name + '" has no changing transform keys.');
     }
-    if (!moving.length)
-      throw Error('Static Spine export rejected: no transform/deform timeline has different values at distinct times.');
-    return { animationNames: animations.map(([name]) => name), movingTimelines: moving };
+    return { animationNames: actualAnimations, movingTimelines: moving,
+      zipEntries: files.size, textureFiles: textureNames, manifest };
+  }
+
+  function aiSchemaError(message) {
+    const error = Error(message);
+    error.code = 'AI_SCHEMA_INVALID';
+    throw error;
+  }
+  function validateVisualAnalysis(analysis, source) {
+    if (!analysis || typeof analysis !== 'object' || !analysis.subject ||
+        typeof analysis.subject.kind !== 'string' || !analysis.subject.kind.trim() ||
+        !Number.isFinite(analysis.subject.confidence) || analysis.subject.confidence < 0 ||
+        analysis.subject.confidence > 1 || !Array.isArray(analysis.parts) || analysis.parts.length > 10000)
+      aiSchemaError('AI visual analysis schema is invalid: subject.kind, subject.confidence and parts[] are required');
+    const partIds = new Set();
+    for (const part of analysis.parts) {
+      if (!part || typeof part.id !== 'string' || !part.id.trim() || partIds.has(part.id) ||
+          typeof part.kind !== 'string' || !part.kind.trim() ||
+          !Number.isFinite(part.confidence) || part.confidence < 0 || part.confidence > 1 ||
+          !Array.isArray(part.layerIds) || !Array.isArray(part.chains) ||
+          part.chains.length > 10000)
+        aiSchemaError('AI visual analysis contains an invalid part record');
+      partIds.add(part.id);
+      if (part.layerIds.some(id => !source.layers.some(layer => layer.id === id)))
+        aiSchemaError('AI visual analysis references an unknown PSD layer');
+      for (const chain of part.chains) {
+        if (!chain || !Array.isArray(chain.points) || chain.points.length < 2 || chain.points.length > 10000 ||
+            chain.points.some(point => !point || !Number.isFinite(point.x) || !Number.isFinite(point.y) ||
+              point.x < 0 || point.y < 0 || point.x > source.width || point.y > source.height))
+          aiSchemaError('AI visual analysis contains an invalid or out-of-bounds chain');
+      }
+    }
+  }
+  function validateAIPlan(plan, source) {
+    if (!plan || typeof plan !== 'object' || !plan.scene ||
+        !Array.isArray(plan.scene.nodes) || !plan.scene.nodes.length ||
+        !Array.isArray(plan.scene.clips) || !plan.scene.clips.length)
+      aiSchemaError('AI returned no complete scene with non-empty animation clips');
+    const scene = plan.scene;
+    const nodes = new Map(scene.nodes.map(node => [node?.id, node]));
+    if (nodes.size !== scene.nodes.length || scene.nodes.some(node => !node ||
+        typeof node.id !== 'string' || !node.id.trim()))
+      aiSchemaError('AI scene contains missing or duplicate node IDs');
+    const order = Array.isArray(scene.drawOrder) ? scene.drawOrder : scene.nodes.map(node => node.id);
+    if (order.length !== scene.nodes.length || new Set(order).size !== scene.nodes.length ||
+        order.some(id => !nodes.has(id)))
+      aiSchemaError('AI scene draw order is incomplete or contains unknown nodes');
+    const assets = order.map(id => nodes.get(id)).filter(node => node.asset).map(node => node.asset);
+    if (assets.length !== source.layers.length ||
+        assets.some((id, index) => id !== source.layers[index].id))
+      aiSchemaError('AI scene changed the exact source layer inventory or draw order');
+    const validation = plan.validation;
+    if (!validation || validation.initialPosePreserved !== true ||
+        validation.drawOrderPreserved !== true || validation.sourceLayers !== source.layers.length)
+      aiSchemaError('AI scene did not certify the original frame-zero pose, draw order and source layer count');
+    const clipIds = new Set();
+    for (const clip of scene.clips) {
+      if (!clip || typeof clip.id !== 'string' || !clip.id.trim() || clipIds.has(clip.id) ||
+          clip.id === 'technical_bounce_unapproved' ||
+          !Number.isFinite(clip.duration) || clip.duration <= 0 || clip.duration > 86400 ||
+          !Array.isArray(clip.tracks) || !clip.tracks.length)
+        aiSchemaError('AI clip is missing a unique ID, valid duration or authored node tracks');
+      clipIds.add(clip.id);
+      let moving = false;
+      for (const track of clip.tracks) {
+        if (!track || !nodes.has(track.target) ||
+            !['x', 'y', 'z', 'rotation', 'scaleX', 'scaleY', 'opacity', 'depth'].includes(track.property) ||
+            !Array.isArray(track.keys) || track.keys.length < 2 || track.keys.length > 10000)
+          aiSchemaError('AI clip contains an invalid track or fewer than two keyframes');
+        let previous = -1;
+        const values = new Set();
+        for (const key of track.keys) {
+          if (!key || !Number.isFinite(key.time) || key.time < 0 || key.time > clip.duration ||
+              key.time <= previous || !Number.isFinite(key.value) ||
+              (key.interpolation !== undefined && !['linear', 'stepped'].includes(key.interpolation)) ||
+              key.curve !== undefined)
+            aiSchemaError('AI clip contains invalid, unordered or unsupported keyframe data');
+          previous = key.time;
+          values.add(key.value);
+        }
+        if (values.size > 1) moving = true;
+      }
+      if (!moving) aiSchemaError('AI clip "' + clip.id + '" is static and has no changing numeric node pose');
+    }
+    if (plan.analysis !== undefined && plan.analysis !== null) validateVisualAnalysis(plan.analysis, source);
+    return true;
+  }
+  async function requestAIPlan(body, source) {
+    let current = body;
+    for (let repair = 0; repair < 2; repair++) {
+      try {
+        const result = await fetchPlannerWithRetry(current);
+        let plan;
+        try { plan = JSON.parse(new TextDecoder().decode(result.bytes)); }
+        catch (_) { aiSchemaError('AI planner returned malformed JSON'); }
+        validateAIPlan(plan, source);
+        return plan;
+      } catch (error) {
+        const schemaFailure = error?.code === 'AI_SCHEMA_INVALID' ||
+          error?.remoteCode === 'ANALYSIS_SCHEMA' ||
+          /ANALYSIS_SCHEMA|Invalid visual subject|visual analysis schema/i.test(String(error?.message || ''));
+        if (!schemaFailure || repair >= 1) throw error;
+        const corrected = JSON.parse(current);
+        corrected.instructions = String(corrected.instructions || '') +
+          ' REPAIR THE PREVIOUS AI RESPONSE. Return a complete valid scene and visual analysis. ' +
+          'analysis.subject must be an object {kind: non-empty string, confidence: finite 0..1}; ' +
+          'use kind unclassified and confidence 0 when uncertain, never a string subject. ' +
+          'analysis.parts must be an array; every part has id, kind, confidence, layerIds and chains arrays. ' +
+          'Every clip must contain moving numeric node tracks with at least two distinct keyframes. ' +
+          'Preserve exact source layers, frame zero and draw order. Do not emit a technical fallback.';
+        corrected.description = String(corrected.description || '') +
+          '\n\nCorrective validation request: ' + String(error.message || error).slice(0, 500) +
+          '. Return a corrected AI-authored scene; do not relax source-preservation or animation checks.';
+        current = JSON.stringify(corrected);
+        if (current.length > 19 * 1024 * 1024)
+          throw Error('AI repair request exceeds the 19 MB planning limit');
+        message('AI response did not match the strict scene schema; requesting one corrected AI plan…');
+      }
+    }
+    throw Error('AI planner could not produce a valid scene after one schema repair');
   }
 
   function sourceURL(text) {
@@ -193,7 +442,7 @@
     for (const [name, endpoint] of routes) {
       message('Loading PSD via ' + name + '…');
       try {
-        const bytes = (await fetchLimited(endpoint, { method: 'GET' }, LIMIT, name)).bytes;
+        const bytes = (await fetchLimited(endpoint, { method: 'GET' }, LIMIT, name, 45000)).bytes;
         const head = new Uint8Array(bytes, 0, Math.min(bytes.byteLength, 6));
         if (head.length !== 6 || String.fromCharCode(...head.slice(0, 4)) !== '8BPS' ||
             head[4] !== 0 || head[5] !== 1)
@@ -208,7 +457,7 @@
         try {
           message('Checking original Cherry backup…');
           const endpoint = STUDIO + '/api/source?url=' + encodeURIComponent(mirror);
-          const bytes = (await fetchLimited(endpoint, { method: 'GET' }, LIMIT, 'Cherry backup')).bytes;
+          const bytes = (await fetchLimited(endpoint, { method: 'GET' }, LIMIT, 'Cherry backup', 45000)).bytes;
           return await checkMirror(bytes);
         } catch (error) { failures.push(error.message); }
       }
@@ -297,37 +546,20 @@
       preview.hidden = false;
       const request = JSON.stringify({ image: source.composite.toDataURL('image/png'),
         layers: source.layers, description: motion,
-        instructions: 'Preserve original draw order and all source layer pixels. Keep frame-zero setup pose. This MUST be a genuinely animated Spine scene, never static keys: author real translate/rotate/scale/shear or mesh-deform timelines with at least two different numeric poses at distinct timestamps in every requested motion clip. Include anticipation, action, follow-through, settle and return where appropriate. Do not emit duplicate keys or empty animations. Verify evaluated poses differ over time while frame zero matches the source. Do not fake 360-degree depth.' });
+        instructions: 'Preserve original draw order and all source layer pixels. Keep frame-zero setup pose. This MUST be a genuinely animated Spine scene, never static keys: author real translate/rotate/scale/shear or mesh-deform timelines with at least two different numeric poses at distinct timestamps in every requested motion clip. Include anticipation, action, follow-through, settle and return where appropriate. Do not emit duplicate keys or empty animations. Verify evaluated poses differ over time while frame zero matches the source. Do not fake 360-degree depth. If returning visual analysis, analysis.subject MUST be an object with a non-empty kind string and finite confidence from 0 to 1; use kind unclassified and confidence 0 when semantics are uncertain. analysis.parts MUST be an array; every part needs id, kind, confidence, layerIds and chains arrays. Every chain must have at least two finite in-bounds points. Never return subject as a plain string.' });
       if (request.length > 19 * 1024 * 1024) throw Error('PSD exceeds cloud planning limit');
       stage = 'AI planning';
       message('Cloud animation in progress…');
       let plan;
       try {
-        let planResponse;
-        for (let attempt = 0; attempt < 2; attempt++) {
-          try {
-            planResponse = await fetchLimited(STUDIO + '/api/plan', {
-              method: 'POST', headers: { 'content-type': 'application/json' }, body: request
-            }, 20 * 1024 * 1024, 'AI planner', 45000);
-            break;
-          } catch (error) {
-            if (attempt !== 0 || ![502, 503].includes(error.status)) throw error;
-            message('AI planner temporarily unavailable; retrying once…');
-          }
-        }
-        plan = JSON.parse(new TextDecoder().decode(planResponse.bytes));
+        plan = await requestAIPlan(request, source);
       } catch (error) {
-        // No planner error may cross into export: 4xx/5xx, timeout, network
-        // failure and malformed AI responses all fail closed without a ZIP.
+        // Network failures, invalid AI schemas and source-preservation failures
+        // all fail closed. A schema mismatch gets one explicit AI repair request;
+        // no technical or template ZIP is ever created.
         throw Error('AI planning failed closed: ' + (error?.message || String(error)) +
           '. No technical fallback ZIP was created.');
       }
-      if (!plan.scene || !Array.isArray(plan.scene.clips) || !plan.scene.clips.length)
-        throw Error('Cloud did not return complete animation clips. No incomplete ZIP created.');
-      if (plan.scene.clips.some(clip => clip?.id === 'technical_bounce_unapproved'))
-        throw Error('Planner returned an unapproved technical fallback scene. No ZIP created.');
-      if (plan.validation?.initialPosePreserved !== true || plan.validation?.drawOrderPreserved !== true)
-        throw Error('Cloud failed source-preservation validation');
       const exportBody = JSON.stringify({ canvas: { width: source.width, height: source.height },
         scene: plan.scene, layers: source.layers });
       if (exportBody.length > 19 * 1024 * 1024) throw Error('Export payload is too large');
@@ -335,11 +567,11 @@
       message('Exporting Spine ZIP…');
       const result = await fetchLimited(EXPORTER + '/api/build', {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: exportBody
-      }, 200 * 1024 * 1024, 'Spine ZIP exporter');
+      }, 200 * 1024 * 1024, 'Spine ZIP exporter', 45000);
       const sig = new Uint8Array(result.bytes, 0, 4);
       if (sig.length < 4 || sig[0] !== 80 || sig[1] !== 75 || sig[2] !== 3 || sig[3] !== 4)
         throw Error('Server did not return a valid ZIP header');
-      const animationAudit = await inspectSpineZip(result.bytes, plan.scene.clips);
+      const animationAudit = await inspectSpineZip(result.bytes, plan.scene.clips, source);
       console.info('SPINE_ANIMATION_CONTENT_AUDIT', animationAudit);
       downloadURL = URL.createObjectURL(new Blob([result.bytes], { type: 'application/zip' }));
       $('download').href = downloadURL;
