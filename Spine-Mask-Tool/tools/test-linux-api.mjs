@@ -38,7 +38,11 @@ test('Spine website client submits SHA-checked ZIP and verifies returned native 
     }
     if(path.endsWith('/status')){
       assert.equal(headers.Authorization,'Bearer read-only-token');
-      return json({status:'ready',size:native.length,parts:1,sha256:await checksum(native)});
+      const inputSha256=await checksum(input),outputSha256=await checksum(native);
+      return json({status:'ready',size:native.length,parts:1,sha256:outputSha256,inputSha256,
+        receipt:{spineVersion:'4.3.26',sourceSha256:inputSha256,inputSha256,resultSha256:outputSha256,
+          nativeImportVerified:true,nativeExportVerified:true,animationsPreserved:true,
+          clippingAttachments:1,originalAssetsRetained:3,vertices:12}});
     }
     if(path.endsWith('/result/0')){
       assert.equal(headers.Authorization,'Bearer read-only-token');
@@ -49,8 +53,12 @@ test('Spine website client submits SHA-checked ZIP and verifies returned native 
   };
   try{
     const job=await api.submitSpineProject(input,'my-project.zip');
+    assert.equal(job.inputSha256,await checksum(input));
     const result=await api.pollSpineResult(job);
-    assert.deepEqual(result,native);
+    assert.deepEqual(result.bytes,native);
+    assert.equal(result.inputSha256,job.inputSha256);
+    assert.equal(result.outputSha256,await checksum(native));
+    assert.equal(result.receipt.nativeImportVerified,true);
     assert.deepEqual(uploaded[0],input);
     assert.ok(jobs.some(([,p])=>p.endsWith('/commit')));
     assert.ok(jobs.some(([method])=>method==='DELETE'));
@@ -67,3 +75,26 @@ assert.match(app,/void verifyLinuxZip\(zip\)/);
 assert.match(html,/id="quick-install-bridge"/);
 assert.match(html,/id="quick-from-spine"/);
 console.log('MASK_SIMPLE_AND_AGENT_MODE_PRESERVATION_PASS');
+
+test('reject a ready ZIP without an exact hash-bound Spine Editor receipt',async()=>{
+  const original=globalThis.fetch;
+  const input=new Uint8Array(32);input.set([80,75,3,4]);
+  const id='89b67ac5-3d5b-4887-99ae-838ecc7c7e78';
+  const native=new Uint8Array(32);native.set([80,75,3,4]);
+  globalThis.fetch=async(url,init={})=>{
+    const path=new URL(url).pathname;
+    const json=data=>new Response(JSON.stringify(data),{status:200,headers:{'Content-Type':'application/json'}});
+    if(path==='/v2/sessions'&&init.method==='POST')return new Response(JSON.stringify({id,uploadToken:'u',resultToken:'r',partBytes:4194304,maxParts:16,maxBytes:67108864}),{status:201});
+    if(path.endsWith('/input/0'))return json({status:'stored'});
+    if(path.endsWith('/commit'))return json({status:'queued'});
+    if(path.endsWith('/status'))return json({status:'ready',size:native.length,parts:1,
+      sha256:await checksum(native),inputSha256:await checksum(input)});
+    if(path.endsWith('/result/0'))return new Response(native,{status:200});
+    if(path.endsWith('/'+id)&&init.method==='DELETE')return json({status:'deleted'});
+    throw Error('Unexpected API request '+path);
+  };
+  try{
+    const job=await api.submitSpineProject(input,'missing-receipt.zip');
+    await assert.rejects(api.pollSpineResult(job),/Missing or invalid licensed Spine Editor 4.3.26 receipt/);
+  }finally{globalThis.fetch=original;}
+});
