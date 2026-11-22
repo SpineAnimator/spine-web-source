@@ -68,14 +68,14 @@ function boneMap(){return new Map((state.json?.bones||[]).map(b=>[b.name,b]));}
 function descendantsOf(name){const map=boneMap(),out=new Set([name]);let changed=true;while(changed){changed=false;for(const b of map.values())if(b.parent&&out.has(b.parent)&&!out.has(b.name)){out.add(b.name);changed=true;}}return out;}
 function updateMakeButton(){
  const button=$("do-all"),n=state.selectedChoiceIndexes?.size||0;
- button.textContent=n?"Сделать маску · "+n:"Сделать маску";
+ button.textContent=n?"Make mask · "+n:"Make mask";
  button.disabled=quickBusy||(!state.json&&!state.images.length&&!state.binary);
  const slots=state.json?.slots||[];
  const chosen=[...new Set(state.treeChoices.filter(e=>state.selectedChoiceIndexes.has(e.choiceIndex)).map(e=>e.choice.slot))];
  const indices=chosen.map(name=>slots.findIndex(slot=>slot.name===name)).filter(i=>i>=0).sort((x,y)=>x-y);
  const hasGap=indices.length>1&&indices.at(-1)-indices[0]+1>indices.length;
  button.title=hasGap
-  ?"Одна маска покрывает диапазон от первого до последнего выбранного слота; промежуточные слоты тоже попадают под clipping внутри контура."
+  ?"One mask covers the range from the first to the last selected slot; intermediate slots are clipped inside the contour."
   :"";
 }
 function syncTreeChecks(){const root=$("selection-tree");if(!root)return;for(const box of root.querySelectorAll('input[type="checkbox"]')){const type=box.dataset.treeType,id=box.dataset.treeId;let keys=[];if(type==="bone"){const d=descendantsOf(id);keys=state.treeChoices.filter(e=>{const s=state.json.slots.find(x=>x.name===e.choice.slot);return s&&d.has(s.bone);}).map(e=>e.choiceIndex);}else if(type==="slot")keys=state.treeChoices.filter(e=>e.choice.slot===id).map(e=>e.choiceIndex);else keys=[Number(id)];const count=keys.filter(k=>state.selectedChoiceIndexes.has(k)).length;box.checked=keys.length>0&&count===keys.length;box.indeterminate=count>0&&count<keys.length;}}
@@ -118,21 +118,21 @@ function setupBoneMatrices(){
  return{bones,cache};
 }
 function commonBone(names,data){const chains=names.map(n=>{const a=[];let b=data.bones.get(n);while(b){a.push(b.name);b=b.parent?data.bones.get(b.parent):null;}return a;});return(chains[0]||[]).find(n=>chains.every(c=>c.includes(n)));}
-function sourceForChoice(c){const names=[basename(c.path),basename(c.attachment)];const found=state.images.filter(x=>names.includes(basename(x.file.name)));if(found.length>1)throw Error("Несколько текстур имеют одинаковое имя: "+c.path);return found[0]||null;}
+function sourceForChoice(c){const names=[basename(c.path),basename(c.attachment)];const found=state.images.filter(x=>names.includes(basename(x.file.name)));if(found.length>1)throw Error("Multiple textures share the same filename: "+c.path);return found[0]||null;}
 function composeSelectedArtwork(entries){
  const slots=state.json.slots||[],bd=setupBoneMatrices(),selectedSlots=[...new Set(entries.map(e=>e.choice.slot))].sort((a,b)=>slots.findIndex(s=>s.name===a)-slots.findIndex(s=>s.name===b));
  const first=slots.findIndex(s=>s.name===selectedSlots[0]),last=slots.findIndex(s=>s.name===selectedSlots.at(-1));
- const names=selectedSlots.map(n=>slots.find(s=>s.name===n).bone),clipBone=commonBone(names,bd);if(!clipBone)throw Error("Нет общей родительской кости.");
+ const names=selectedSlots.map(n=>slots.find(s=>s.name===n).bone),clipBone=commonBone(names,bd);if(!clipBone)throw Error("No common parent bone was found.");
  for(const name of names){
   let bone=bd.bones.get(name);
   while(bone){
    if(bone.transform&&bone.transform!=="normal")
-    throw Error("Для маски по нескольким костям пока не поддерживается режим наследования "+bone.transform+" у кости "+bone.name+".");
+    throw Error("Multi-bone masking does not yet support the inheritance mode "+bone.transform+" on bone "+bone.name+".");
    bone=bone.parent?bd.bones.get(bone.parent):null;
   }
  }
  const inv=invertMatrix(bd.cache.get(clipBone)),items=[];
- for(const e of entries){const c=e.choice,slot=slots.find(s=>s.name===c.slot),asset=sourceForChoice(c);if(!asset)throw Error("Нет текстуры для "+c.attachment);const im=asset.image,d=c.data||{},w=Number(d.width)||im.width,h=Number(d.height)||im.height,r=(Number(d.rotation)||0)*Math.PI/180,sx=Number(d.scaleX??1),sy=Number(d.scaleY??1),co=Math.cos(r),si=Math.sin(r);
+ for(const e of entries){const c=e.choice,slot=slots.find(s=>s.name===c.slot),asset=sourceForChoice(c);if(!asset)throw Error("Missing texture for "+c.attachment);const im=asset.image,d=c.data||{},w=Number(d.width)||im.width,h=Number(d.height)||im.height,r=(Number(d.rotation)||0)*Math.PI/180,sx=Number(d.scaleX??1),sy=Number(d.scaleY??1),co=Math.cos(r),si=Math.sin(r);
   const a=co*w*sx/im.width,b=si*w*sx/im.width,cc=si*h*sy/im.height,dd=-co*h*sy/im.height,x=Number(d.x)||0,y=Number(d.y)||0;
   const attach=[a,b,cc,dd,x-a*im.width/2-cc*im.height/2,y-b*im.width/2-dd*im.height/2],m=multiplyMatrix(inv,multiplyMatrix(bd.cache.get(slot.bone),attach));
   const corners=[[0,0],[im.width,0],[0,im.height],[im.width,im.height]].map(([px,py])=>[m[0]*px+m[2]*py+m[4],m[1]*px+m[3]*py+m[5]]);items.push({im,m,corners,boneName:slot.bone,slotIndex:slots.findIndex(s=>s.name===slot.name)});
@@ -203,7 +203,7 @@ function weightedMaskVertices(composition,maskPoints){
  });
 }
 async function generateSelectedObjects(){
- const entries=state.treeChoices.filter(e=>state.selectedChoiceIndexes.has(e.choiceIndex));if(!entries.length)throw Error("Выбери объект в дереве.");
+ const entries=state.treeChoices.filter(e=>state.selectedChoiceIndexes.has(e.choiceIndex));if(!entries.length)throw Error("Select an object in the tree.");
  const c=composeSelectedArtwork(entries),ctx=c.canvas.getContext("2d",{willReadFrequently:true}),mask=imageMask(ctx.getImageData(0,0,c.canvas.width,c.canvas.height),{highlightFaces:$("highlight-edges").checked});
  const points=mask.points.map(([x,y])=>[c.minX+x/c.scale,c.maxY-y/c.scale]);
  const distinctBones=new Set(c.items.map(item=>item.boneName));
@@ -537,7 +537,7 @@ async function doEverything() {
     return;
   }
   if (state.json && !state.selectedChoiceIndexes.size) {
-    $("do-all").textContent = "Выберите объект";
+    $("do-all").textContent = "Select an object";
     return;
   }
   if (!state.json && !state.source) {
@@ -548,7 +548,7 @@ async function doEverything() {
   quickBusy = true;
   const button = $("do-all");
   button.disabled = true;
-  button.textContent = "Создаю…";
+  button.textContent = "Creating…";
   try {
     if (state.json) {
       await generateSelectedObjects();
@@ -563,12 +563,12 @@ async function doEverything() {
     // Private CI receives the project only after this user-triggered Make all.
     void verifyLinuxZip(zip);
   } catch (error) {
-    state.actionErrorLabel = /continuous selected slot range|непрерывную группу/i.test(error.message) ? "Выберите подряд" : "Ошибка маски";
+    state.actionErrorLabel = /continuous selected slot range|non-consecutive group/i.test(error.message) ? "Select consecutive items" : "Mask failed";
     status("Automatic mask export failed: " + error.message, true);
   } finally {
     quickBusy = false;
     button.disabled = false;
-    button.textContent = state.actionErrorLabel || (state.editorOpenResult === true ? "Открыто в Spine" : state.editorOpenResult === "saved" ? "Сохранено" : state.editorOpenResult === false ? "Ошибка Spine" : "Сделать маску");
+    button.textContent = state.actionErrorLabel || (state.editorOpenResult === true ? "Opened in Spine" : state.editorOpenResult === "saved" ? "Saved" : state.editorOpenResult === false ? "Spine error" : "Make mask");
   }
 }
 async function verifyLinuxZip(zip=null,{download=true}={}){
