@@ -38,7 +38,7 @@ try{
   assert.equal(simpleSurface.hidden,true,"Simple mode must hide explanatory and advanced text");
   assert.match(simpleSurface.text,/Spine Mask Tool/);
   assert.match(simpleSurface.text,/Agents/);
-  assert.match(simpleSurface.text,/Make Mask/);
+  assert.match(simpleSurface.text,/Make Mask|Сделать маску/);
   assert.match(simpleSurface.text,/Install Bridge/);
   assert.doesNotMatch(simpleSurface.text,/Drop files|No image supplied|One clipping mask|Spine Editor Bridge/);
   console.log("PUBLIC_SITE_BOOT",{
