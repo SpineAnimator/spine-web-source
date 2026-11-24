@@ -19,7 +19,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Validate browser client JavaScript syntax
-        run: node --check app.js
+        run: node --check Spine-Mask-Tool/app.js
 
       - name: Generate synthetic layered artwork, plan animation and validate Spine ZIP
         shell: bash
