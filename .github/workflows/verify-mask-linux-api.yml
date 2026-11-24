@@ -34,3 +34,4 @@ jobs:
           node --check Spine-Mask-Tool/linux-api.js
           node --test Spine-Mask-Tool/tools/test-linux-api.mjs
           echo 'SPINE_MASK_SITE_SERVER_API_CONTRACT_PASS'
+          echo 'Revalidated after the browser-client path and localized UI test updates.'
