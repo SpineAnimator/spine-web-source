@@ -1,4 +1,16 @@
 // Spine Mask Tool geometry and Spine JSON adapter. Client-side only, no external services.
+export function normalizeSpineImagePath(original) {
+  if (!original || typeof original !== "object" || Array.isArray(original)) {
+    throw new TypeError("A Spine skeleton JSON object is required.");
+  }
+  const data = JSON.parse(JSON.stringify(original));
+  data.skeleton ||= {};
+  // Every exported project ZIP contains its texture pages in ./images/.
+  // Absolute source-machine paths are never portable to another editor.
+  data.skeleton.images = "./images/";
+  return data;
+}
+
 export function imageMask(image, options = {}) {
   const w = image.width, h = image.height, total = w * h;
   if (!w || !h || total > 2400000) throw Error("Image too large (max 2.4 million analysis pixels).");
@@ -21,6 +33,7 @@ export function imageMask(image, options = {}) {
   // No slider threshold is required; 3-class histogram segmentation separates
   // the dark extrusion, mid-tones and highlights from actual image pixels.
   const highlightRequested = options.highlightFaces === true;
+  const sourceMask = new Uint8Array(mask);
   let highlight = { applied: false, reason: "disabled", weights: null, cutoff: 0 };
   if (highlightRequested) highlight = findLightFaces(d, mask, total);
   if (highlight.applied) mask.set(highlight.binary);
@@ -31,6 +44,21 @@ export function imageMask(image, options = {}) {
     removed++;
   }
   comps = regions(mask, w, h, 1);
+  // Highlight extraction can turn many small highlights into disconnected
+  // islands even when the original alpha silhouette is one valid component.
+  // Fail closed to the original silhouette instead of rejecting an otherwise
+  // usable layer or manufacturing hundreds of clipping bridges.
+  if (comps.length > 150 && highlight.applied) {
+    mask.set(sourceMask);
+    highlight = { ...highlight, applied: false, reason: "geometry_fallback", weights: null };
+    comps = regions(mask, w, h, 1);
+    removed = 0;
+    for (const comp of comps) if (comp.pixels.length < minArea) {
+      for (const p of comp.pixels) mask[p] = 0;
+      removed++;
+    }
+    comps = regions(mask, w, h, 1);
+  }
   // Visible silhouette is captured BEFORE any connector or inner-hole slit.
   // This is the only coverage map used for rendering second images. It prevents
   // even one pixel of the invisible single-clip routing geometry from appearing.
@@ -609,7 +637,7 @@ function updateExistingMask(data, targetName, vertices, vertexCount) {
   return slot.name;
 }
 export function exportJson(original, target, points, sourceW, sourceH) {
-  const data = original ? JSON.parse(JSON.stringify(original)) : {
+  const data = original ? normalizeSpineImagePath(original) : {
     skeleton: { spine: "4.3.26", x: -sourceW / 2, y: -sourceH / 2, width: sourceW, height: sourceH, images: "./images/" },
     bones: [{ name: "root" }],
     slots: [{ name: "image", bone: "root", attachment: "image" }],
@@ -653,7 +681,7 @@ export function exportLocalEditorMultiMask(original, selectedSlots, points, clip
   if(!original||!Array.isArray(selectedSlots)||!selectedSlots.length||
      !Array.isArray(points)||points.length<3||points.length>2500)
     throw Error("A project, selected objects and a valid mask are required.");
-  const json=JSON.parse(JSON.stringify(original));
+  const json=normalizeSpineImagePath(original);
   const boneNames=new Set((json.bones||[]).map(b=>b.name));
   if(!boneNames.has(clipBone))throw Error("Common parent bone is missing.");
   const wanted=[...new Set(selectedSlots)];
@@ -769,7 +797,7 @@ export function exportLocalEditorMask(original,target,points,sourceW,sourceH) {
   if(!original||!target||!Array.isArray(points)||points.length<3)
     throw Error("Existing Spine JSON, target image and valid mask required.");
   if(points.length>2500)throw Error("Clipping mask exceeds 2500 vertices.");
-  const json=JSON.parse(JSON.stringify(original));
+  const json=normalizeSpineImagePath(original);
   const index=json.slots?.findIndex(s=>s.name===target.slot);
   if(index===undefined||index<0)throw Error("Target Spine slot not found.");
   const originalSlot=json.slots[index];
