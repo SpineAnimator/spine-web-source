@@ -531,6 +531,13 @@ async function doEverything() {
     // only a fallback when Native Messaging is unavailable or no project is open.
     simpleBridgeRequested = true;
     await connectEditor(false);
+    // If the page-load health check was already running, wait for its queued
+    // manual open-project request instead of racing straight to the file picker.
+    const bridgeWaitStarted = Date.now();
+    while ((connectEditor.busy || connectEditor.manualQueued) &&
+           Date.now() - bridgeWaitStarted < 215000) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
     if (!state.source && !state.json && !state.binary) {
       quickPickerArmed = true;
       $("project-files").click();
