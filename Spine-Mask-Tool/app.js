@@ -13,19 +13,22 @@ let bridgeNeedsUpdate = false;
 let linuxVerifyBusy = false;
 let linuxResultUrl = null;
 function configureBridgeDownload() {
-  const link = $("quick-install-bridge");
-  if (!link) return;
   const platform = String(navigator.userAgentData?.platform || navigator.platform || navigator.userAgent || "").toLowerCase();
   const asset = platform.includes("win")
     ? "Spine-Mask-Bridge-Windows.exe"
     : platform.includes("mac")
       ? "Spine-Mask-Bridge-macOS.zip"
       : "Spine-Mask-Bridge-Linux.tar.gz";
-  link.href = "https://github.com/SpineAnimator/Spine-Resize/releases/download/spine-mask-bridge-v1/" + asset;
-  link.removeAttribute("download");
-  link.target = "_blank";
-  link.rel = "noopener noreferrer";
-  link.textContent = "Install Bridge";
+  const url = "https://github.com/SpineAnimator/Spine-Resize/releases/download/spine-mask-bridge-v1/" + asset;
+  for (const id of ["quick-install-bridge", "bridge-install"]) {
+    const link = $(id);
+    if (!link) continue;
+    link.href = url;
+    link.removeAttribute("download");
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = "Install Bridge";
+  }
 }
 configureBridgeDownload();
 function reflectBridgeInstall() {
