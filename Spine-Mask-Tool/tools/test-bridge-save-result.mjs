@@ -32,16 +32,18 @@ async function invokeCommitResult(commitResult) {
     selectedRegion() { return null }
   };
   const harness = `
-    let bridgeWriterBusy = false;
-    let bridgeWriteEpoch = 1;
-    const state = globalThis.state;
-    const bridgeStatus = message => { globalThis.bridgeStatusMessage = message; };
-    const requestBridge = (...args) => globalThis.requestBridge(...args);
-    const writeBytesToHost = (...args) => globalThis.writeBytesToHost(...args);
-    const exportLocalEditorMask = (...args) => globalThis.exportLocalEditorMask(...args);
-    const selectedRegion = (...args) => globalThis.selectedRegion(...args);
-    ${implementation}
-    globalThis.writeResult = await writeToEditor(1);
+    (async () => {
+      let bridgeWriterBusy = false;
+      let bridgeWriteEpoch = 1;
+      const state = globalThis.state;
+      const bridgeStatus = message => { globalThis.bridgeStatusMessage = message; };
+      const requestBridge = (...args) => globalThis.requestBridge(...args);
+      const writeBytesToHost = (...args) => globalThis.writeBytesToHost(...args);
+      const exportLocalEditorMask = (...args) => globalThis.exportLocalEditorMask(...args);
+      const selectedRegion = (...args) => globalThis.selectedRegion(...args);
+      ${implementation}
+      globalThis.writeResult = await writeToEditor(1);
+    })()
   `;
   await vm.runInNewContext(harness, context);
   return { result: context.writeResult, status: context.bridgeStatusMessage, state: context.state };
