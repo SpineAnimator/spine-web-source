@@ -1199,7 +1199,7 @@ async function writeToEditor(epoch){
     await writeBytesToHost(started.stage,"mask.json",encoded);
     const saved=await requestBridge("commit_result",{session,stage:started.stage,openEditor:true},210000);
     if(saved?.imported&&saved?.opened){state.editorOpenResult=true;bridgeStatus("Mask applied · "+saved.project+" opened in local Spine Editor.");}
-    else if(saved?.imported){state.editorOpenResult="saved";bridgeStatus("New .spine project saved; automatic editor opening could not be verified on this platform.",true);}
+    else if(saved?.imported){state.editorOpenResult="saved";bridgeStatus("New .spine project saved; automatic editor opening could not be verified on this platform.",true);return false;}
     else if(saved?.saved){
       state.editorOpenResult="saved";
       bridgeStatus("New Spine JSON saved. Native editor import was unavailable." +
