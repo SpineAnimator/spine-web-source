@@ -54,6 +54,23 @@ try{
     assert.equal(await page.locator("#bridge-install").getAttribute("href"),
       await bridgeInstaller.getAttribute("href"),
       "Advanced-mode installer link must use the same platform-specific package");
+    for(const [platform,asset] of [
+      ["Windows","Spine-Mask-Bridge-Windows.exe"],
+      ["macOS","Spine-Mask-Bridge-macOS.zip"],
+      ["Linux","Spine-Mask-Bridge-Linux.tar.gz"]
+    ]){
+      const platformPage=await browser.newPage();
+      await platformPage.addInitScript(value=>{
+        Object.defineProperty(navigator,"userAgentData",{configurable:true,value:{platform:value}});
+        Object.defineProperty(navigator,"platform",{configurable:true,value});
+      },platform);
+      await platformPage.goto(url,{waitUntil:"domcontentloaded"});
+      await platformPage.waitForFunction(()=>document.querySelector("#quick-install-bridge")?.href.includes("Spine-Mask-Bridge-"));
+      const platformHref=await platformPage.locator("#quick-install-bridge").getAttribute("href");
+      assert.ok(platformHref.endsWith("/"+asset),platform+" must receive "+asset);
+      assert.equal(await platformPage.locator("#bridge-install").getAttribute("href"),platformHref);
+      await platformPage.close();
+    }
   }
   assert.doesNotMatch(simpleSurface.text,/Drop files|No image supplied|One clipping mask|Spine Editor Bridge/);
   console.log("PUBLIC_SITE_BOOT",{
