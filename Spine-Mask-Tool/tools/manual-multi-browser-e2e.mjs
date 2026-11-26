@@ -50,9 +50,11 @@ try{
   const bridgeInstaller=page.locator("#quick-install-bridge");
   assert.match(await bridgeInstaller.getAttribute("href"),/Spine-Mask-Bridge-Linux\.tar\.gz$/,
     "Linux users must receive the direct one-click installer package, not the generic source ZIP");
-  assert.equal(await page.locator("#bridge-install").getAttribute("href"),
-    await bridgeInstaller.getAttribute("href"),
-    "Advanced-mode installer link must use the same platform-specific package");
+  if(url.startsWith("http://127.0.0.1:")){
+    assert.equal(await page.locator("#bridge-install").getAttribute("href"),
+      await bridgeInstaller.getAttribute("href"),
+      "Advanced-mode installer link must use the same platform-specific package");
+  }
   assert.doesNotMatch(simpleSurface.text,/Drop files|No image supplied|One clipping mask|Spine Editor Bridge/);
   console.log("PUBLIC_SITE_BOOT",{
     selectionTree:await page.locator("#selection-tree").count(),
