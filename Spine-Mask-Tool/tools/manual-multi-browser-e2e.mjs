@@ -16,6 +16,13 @@ await page.addInitScript(()=>{
     if(url.includes("workers.dev")||url.includes("/v2/"))return Promise.reject(new Error("UI-only CI blocks external project upload"));
     return original(input,...args);
   };
+  window.__spineMaskBridgeRequests=0;
+  window.addEventListener("message",event=>{
+    const message=event.data;
+    if(event.source!==window||message?.channel!=="spine-mask-native-v1"||message.type!=="request")return;
+    window.__spineMaskBridgeRequests++;
+    window.postMessage({channel:"spine-mask-native-v1",type:"response",id:message.id,ok:false,error:"Native Messaging bridge unavailable in browser CI"},location.origin);
+  });
 });
 try{
   const url=process.env.SPINE_MASK_TEST_URL||"https://spineanimator.github.io/Spine-Mask-Tool/";
@@ -67,9 +74,13 @@ try{
       image_b:{partB:{type:"region",path:"part-b",width:48,height:48}},
       hotspot:{hotspot:{type:"region",path:"hotspot",width:8,height:8}}
     }}],animations:{idle:{bones:{left:{rotate:[{time:0,angle:0},{time:1,angle:25}]},right:{rotate:[{time:0,angle:0},{time:1,angle:-25}]}}}}};
+  const bridgeRequestsBefore=await page.evaluate(()=>window.__spineMaskBridgeRequests);
   const picker=page.waitForEvent("filechooser",{timeout:15000});
   await page.locator("#do-all").click();
   const dialog=await picker;
+  const bridgeRequestsAfter=await page.evaluate(()=>window.__spineMaskBridgeRequests);
+  assert.ok(bridgeRequestsAfter>bridgeRequestsBefore,
+    "Make Mask must attempt the local Spine Editor bridge before opening the file picker");
   await dialog.setFiles([
     {name:"scene.json",mimeType:"application/json",buffer:Buffer.from(JSON.stringify(scene))},
     {name:"part-a.png",mimeType:"image/png",buffer:texture},
