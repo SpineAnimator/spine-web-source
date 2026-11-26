@@ -226,16 +226,15 @@ body:not(.agent-mode) .toolbar h1{font-size:1.1rem}
           <a class="install-button" id="bridge-install" href="https://github.com/SpineAnimator/Spine-Resize/releases/download/spine-mask-bridge-v1/Spine-Mask-Resize-Bridge.zip" target="_blank" rel="noopener noreferrer" download>Install Bridge</a>
         </div>
         <details class="helper" id="bridge-setup">
-          <summary>Bridge setup · Chrome + native host</summary>
-          <ol>
-            <li>Download and unpack <strong>Spine Mask + Resize Bridge</strong>.</li>
-            <li>Chrome → Extensions → Developer mode → <strong>Load unpacked</strong>. Choose the extracted extension folder.</li>
-            <li><strong>macOS:</strong> extract the ZIP and run <code>python3 launch_spinemask_mac.py --launch</code>. It installs the restricted host and opens a dedicated Chrome for Testing session with the extension. A <strong>Spine Mask Tool.app</strong> shortcut is created in Applications.</li>
-            <li><strong>Windows:</strong> after loading the unpacked extension, run <code>python install_spinemask_host.py</code> from the extracted package containing <code>spinemaskbridge.exe</code>.</li>
-            <li><strong>Linux:</strong> after loading the unpacked extension, run <code>bash install_spinemask_linux.sh chrome</code>, or use <code>bash install_spinemask_linux.sh chromium</code>. The installer discovers the exact extension ID and registers the isolated native host.</li>
-            <li>Restart Chrome or Chromium. Use <strong>Import open Spine project</strong>, or <strong>Choose local Spine project</strong> if automatic document detection is unavailable. Opening a .spine ZIP with images also uses the local editor to convert binary files.</li>
-          </ol>
-          <p>Only the exact Spine Mask Tool page can communicate with the host. The original project remains untouched. <a href="https://github.com/SpineAnimator/Spine-Resize/blob/main/spine-bridge/install_spinemask_host.py" target="_blank" rel="noopener noreferrer">Installer source</a></p>
+          <summary>Bridge setup</summary>
+          <p>Download and open the installer for your operating system:</p>
+          <ul>
+            <li><strong>Windows:</strong> download the EXE and double-click it.</li>
+            <li><strong>macOS:</strong> extract the ZIP and double-click <strong>INSTALL.command</strong>.</li>
+            <li><strong>Linux:</strong> extract the TAR.GZ and double-click <strong>INSTALL.desktop</strong>.</li>
+          </ul>
+          <p>The installer registers the local host, prepares a dedicated browser profile and loads the extension automatically. No terminal commands, Python setup, developer mode or manual extension loading are required. The original Chrome profile is not modified.</p>
+          <p>Save the Spine project before importing it. The bridge reads the saved project and its referenced images, not unsaved editor memory. macOS Gatekeeper or Windows SmartScreen may show the standard OS confirmation because the installers are not signed with a paid publisher certificate.</p>
         </details>
       </div>
       <div class="native-settings">
