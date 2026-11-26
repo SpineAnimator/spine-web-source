@@ -60,4 +60,11 @@ const saved = await invokeCommitResult({ saved: true, imported: true, opened: tr
 assert.equal(saved.result, true,
   "a confirmed native import and editor open must return success");
 assert.equal(saved.state.editorOpenResult, true);
+const importedButNotOpened = await invokeCommitResult({ saved: true, imported: true, opened: false, project: "scene-mask.spine" });
+assert.equal(importedButNotOpened.result, false,
+  "an imported project that was not confirmed open must not report full Editor success");
+assert.equal(importedButNotOpened.state.editorOpenResult, "saved");
+assert.match(importedButNotOpened.status, /could not be verified/,
+  "the incomplete editor-open state must remain visible");
+
 console.log("SPINE_MASK_BRIDGE_SAVE_RESULT_REGRESSION_PASS");
