@@ -550,18 +550,31 @@ async function doEverything() {
   button.disabled = true;
   button.textContent = "Creating…";
   try {
+    let editorWriteResult = null;
     if (state.json) {
       await generateSelectedObjects();
       if (!state.result) throw Error("Mask generation failed.");
-      if (state.bridge) await writeToEditor(++bridgeWriteEpoch);
+      if (state.bridge) editorWriteResult = await writeToEditor(++bridgeWriteEpoch);
     } else if (!state.result) await generate();
     if (!state.result) throw Error($("status").textContent || "Mask validation failed.");
     const zip = await buildPreservedSpineProjectZip();
     downloadBlob(new Blob([zip], { type: "application/zip" }),
       (state.base || "mask") + "-complete-spine-mask.zip");
-    status("Complete Spine ZIP saved locally. Queuing licensed Linux verification…");
+    const editorFailure = editorWriteResult === false
+      ? ($("bridge-status").textContent || "The local Spine Editor did not confirm the save.")
+      : null;
+    status(editorFailure
+      ? "Spine ZIP saved locally. Editor sync failed: " + editorFailure
+      : "Complete Spine ZIP saved locally. Queuing licensed Linux verification…", !!editorFailure);
     // Private CI receives the project only after this user-triggered Make all.
-    void verifyLinuxZip(zip);
+    void verifyLinuxZip(zip).then(result => {
+      if (editorFailure) {
+        const linux = result?.status === "ready"
+          ? " Licensed Ubuntu Editor verification also produced a ZIP."
+          : " Linux verification: " + (result?.error || "not confirmed.");
+        status("Spine ZIP saved locally. Local Editor sync failed: " + editorFailure + linux, true);
+      }
+    });
   } catch (error) {
     state.actionErrorLabel = /continuous selected slot range|non-consecutive group/i.test(error.message) ? "Select consecutive items" : "Mask failed";
     status("Automatic mask export failed: " + error.message, true);
@@ -1155,9 +1168,19 @@ async function writeToEditor(epoch){
     const saved=await requestBridge("commit_result",{session,stage:started.stage,openEditor:true},210000);
     if(saved?.imported&&saved?.opened){state.editorOpenResult=true;bridgeStatus("Mask applied · "+saved.project+" opened in local Spine Editor.");}
     else if(saved?.imported){state.editorOpenResult="saved";bridgeStatus("New .spine project saved; automatic editor opening could not be verified on this platform.",true);}
-    else if(saved?.saved){state.editorOpenResult="saved";bridgeStatus("New Spine JSON saved. Native editor import was unavailable.",true);}
+    else if(saved?.saved){
+      state.editorOpenResult="saved";
+      bridgeStatus("New Spine JSON saved. Native editor import was unavailable." +
+        (saved.editorError ? " · " + saved.editorError : ""),true);
+      return false;
+    }
     else throw Error("Spine editor did not confirm output.");
-  }catch(error){state.editorOpenResult=false;bridgeStatus("Local Spine export: "+error.message,true);}
+    return true;
+  }catch(error){
+    state.editorOpenResult=false;
+    bridgeStatus("Local Spine export: "+error.message,true);
+    return false;
+  }
   finally{
     bridgeWriterBusy=false;
     if(epoch!==bridgeWriteEpoch&&state.bridge&&state.result)queueBridgeWrite();
