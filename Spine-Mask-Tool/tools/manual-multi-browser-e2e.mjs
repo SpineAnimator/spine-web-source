@@ -47,11 +47,9 @@ try{
   assert.match(simpleSurface.text,/Agents/);
   assert.match(simpleSurface.text,/Make Mask|Сделать маску/);
   assert.match(simpleSurface.text,/Install Bridge/);
-  if(url.startsWith("http://127.0.0.1:")){
-    const bridgeInstaller=page.locator("#quick-install-bridge");
-    assert.match(await bridgeInstaller.getAttribute("href"),/Spine-Mask-Bridge-Linux\.tar\.gz$/,
-      "Linux users must receive the direct one-click installer package, not the generic source ZIP");
-  }
+  const bridgeInstaller=page.locator("#quick-install-bridge");
+  assert.match(await bridgeInstaller.getAttribute("href"),/Spine-Mask-Bridge-Linux\.tar\.gz$/,
+    "Linux users must receive the direct one-click installer package, not the generic source ZIP");
   assert.doesNotMatch(simpleSurface.text,/Drop files|No image supplied|One clipping mask|Spine Editor Bridge/);
   console.log("PUBLIC_SITE_BOOT",{
     selectionTree:await page.locator("#selection-tree").count(),
