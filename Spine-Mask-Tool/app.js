@@ -527,9 +527,15 @@ $("generate").addEventListener("click", generate);
 async function doEverything() {
   if (quickBusy) return;
   if (!state.source && !state.json && !state.binary) {
-    quickPickerArmed = true;
-    $("project-files").click();
-    return;
+    // Prefer the already-open local Spine Editor project. The file picker is
+    // only a fallback when Native Messaging is unavailable or no project is open.
+    simpleBridgeRequested = true;
+    await connectEditor(false);
+    if (!state.source && !state.json && !state.binary) {
+      quickPickerArmed = true;
+      $("project-files").click();
+      return;
+    }
   }
   if (state.binary && !state.json) {
     setAgentMode(true);
