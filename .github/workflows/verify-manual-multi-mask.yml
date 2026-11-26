@@ -7,6 +7,7 @@ on:
       - Spine-Mask-Tool/index.html
       - .github/workflows/verify-manual-multi-mask.yml
       - Spine-Mask-Tool/tools/manual-multi-browser-e2e.mjs
+      - Spine-Mask-Tool/tools/test-bridge-save-result.mjs
   push:
     branches: [main]
     paths:
@@ -76,6 +77,8 @@ jobs:
           node-version: '22'
       - name: Parse browser application module
         run: node --input-type=module --check < Spine-Mask-Tool/app.js
+      - name: Verify native Editor commit failures reach the user
+        run: node Spine-Mask-Tool/tools/test-bridge-save-result.mjs
       - name: Verify one shared clipping attachment for selected slots
         run: |
           node --input-type=module <<'NODE'
