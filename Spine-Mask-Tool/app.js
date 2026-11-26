@@ -598,7 +598,7 @@ async function doEverything() {
     status(editorFailure
       ? "Spine ZIP saved locally. Editor sync failed: " + editorFailure
       : "Complete Spine ZIP saved locally. Queuing licensed Linux verification…", !!editorFailure);
-    // Private CI receives the project only after this user-triggered Make all.
+    // Public Ubuntu verification receives the project only after this user-triggered Make all.
     void verifyLinuxZip(zip).then(result => {
       if (editorFailure) {
         const linux = result?.status === "ready"
