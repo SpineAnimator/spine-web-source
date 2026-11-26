@@ -4,7 +4,7 @@ import vm from "node:vm";
 
 const app = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const start = app.indexOf("async function writeToEditor(epoch){");
-const end = app.indexOf(' $("bridge-refresh").addEventListener', start);
+const end = app.indexOf('$("bridge-refresh").addEventListener', start);
 assert.ok(start >= 0 && end > start, "writeToEditor must remain a testable standalone function");
 const implementation = app.slice(start, end);
 
